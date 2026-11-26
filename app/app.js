@@ -159,7 +159,7 @@ function render2D() {
   const zones = [
     { title: 'Zone 1 — Blue Selective Racking (2.7×1.2 m · 2-Tier · 2,700 mm Frame)', rows: [1, 2, 3, 4, 5, 6] },
     { title: 'Zone 2 — Magenta Selective (Rows 7–10 · 3.3×1.2 m) & Yellow Floor (Rows 11–12 · 4.0×1.5 m)', rows: [7, 8, 9, 10, 11, 12] },
-    { title: 'Zone 3 — Green 6.1 m Cantilever (3-Tier) & Yellow Highway Floor Bays', special: true },
+    { title: 'Zone 3 — Yellow Highway Floor Bays & Green 6.1 m Cantilever (3-Tier)', special: true },
   ];
 
   const byRow = {};
@@ -203,15 +203,16 @@ function render2D() {
       }
     } else {
       html += `<div class="bays-strip">`;
+      const hwyFloors = zone3Groups['HWY-FLOOR'].slice().sort((a, b) => a.bay - b.bay);
+      for (const loc of hwyFloors) {
+        html += `<div class="bay-col" style="min-width:165px"><div class="bay-col-title">${loc.location_id}</div>`;
+        html += renderLevelCard(loc, skuMap);
+        html += `</div>`;
+      }
       for (const gKey of ['CANT-R01', 'CANT-R02', 'CANT-R03']) {
         const levels = zone3Groups[gKey].slice().sort((x, y) => y.tier - x.tier);
         html += `<div class="bay-col" style="min-width:145px"><div class="bay-col-title">${gKey} (3-Tier)</div>`;
         for (const loc of levels) html += renderLevelCard(loc, skuMap);
-        html += `</div>`;
-      }
-      for (const loc of zone3Groups['HWY-FLOOR']) {
-        html += `<div class="bay-col" style="min-width:165px"><div class="bay-col-title">${loc.location_id}</div>`;
-        html += renderLevelCard(loc, skuMap);
         html += `</div>`;
       }
       html += `</div>`;
@@ -467,16 +468,16 @@ async function render3D() {
       z = (loc.row_num - 1) * 3.0;
       y = loc.tier === 1 ? 0.55 : 2.1;
     } else if (loc.location_id.startsWith('CANT-R')) {
-      w = 6.0;
-      dep = 1.5;
-      x = (loc.bay - 1) * 6.5;
-      z = 37.5;
+      w = 1.2;
+      dep = 6.1;
+      x = -8.5;
+      z = 19.0 + (loc.bay - 1) * 7.0;
       y = 0.5 + (loc.tier - 1) * 1.1;
     } else if (loc.location_id.startsWith('HWY-FLOOR-')) {
-      w = loc.location_id === 'HWY-FLOOR-01' ? 5.6 : 7.3;
-      dep = loc.location_id === 'HWY-FLOOR-01' ? 2.1 : 1.2;
-      x = -4.5;
-      z = loc.location_id === 'HWY-FLOOR-01' ? 4.0 : 14.0;
+      w = loc.location_id === 'HWY-FLOOR-01' ? 2.1 : 1.2;
+      dep = loc.location_id === 'HWY-FLOOR-01' ? 5.8 : 7.5;
+      x = -8.5;
+      z = loc.location_id === 'HWY-FLOOR-01' ? 3.0 : 11.0;
       y = 0.45;
     }
 
