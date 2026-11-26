@@ -1,0 +1,247 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Level 2 Area 3 — 2D/3D Rack &amp; Putaway Visualizer (Rev 01.15)</title>
+  <meta name="description" content="Interactive 2D floor map, rack-by-rack elevation, 3D warehouse visualizer, SWL capacity checker, and 5-day buffer burn-down connected live to OpenMES for Level 2 Area 3 (221 rack-levels, 500 slots, 58 SKUs)." />
+  <meta name="keywords" content="warehouse rack visualizer, OpenMES, Level 2 Area 3, 5D buffer, pallet racking, SWL load capacity, cantilever racking, 3D warehouse map" />
+  <meta name="author" content="Amirul" />
+  <meta name="robots" content="index, follow" />
+  <meta name="theme-color" id="meta-theme-color" content="#0c111b" />
+  <link rel="canonical" href="https://rack.my-edu.my/" />
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+
+  <meta property="og:type" content="website" />
+  <meta property="og:site_name" content="Level 2 Area 3 Rack Visualizer" />
+  <meta property="og:title" content="Level 2 Area 3 — 2D/3D Rack &amp; Putaway Visualizer (Rev 01.15)" />
+  <meta property="og:description" content="Live OpenMES-connected 2D/3D warehouse rack map covering 221 rack-levels, 500 pallet slots, SWL margins, SPAN locks, and 5-day consumption playback." />
+  <meta property="og:url" content="https://rack.my-edu.my/" />
+
+  <meta name="twitter:card" content="summary" />
+  <meta name="twitter:title" content="Level 2 Area 3 — 2D/3D Rack &amp; Putaway Visualizer" />
+  <meta name="twitter:description" content="Interactive 2D/3D rack elevation, SWL utilization, and 5D burn-down synced live with OpenMES." />
+
+  <script type="application/ld+json">
+    {
+      "@context": "https://schema.org",
+      "@type": "WebApplication",
+      "name": "Level 2 Area 3 Rack & Putaway Visualizer",
+      "url": "https://rack.my-edu.my/",
+      "applicationCategory": "BusinessApplication",
+      "operatingSystem": "Web",
+      "description": "Interactive 2D/3D warehouse racking elevation, SWL capacity verification, and 5-day buffer burn-down connected live to OpenMES."
+    }
+  </script>
+  <script>
+    (function () {
+      try {
+        var saved = localStorage.getItem('rackviz-theme') || 'dark';
+        document.documentElement.setAttribute('data-theme', saved === 'light' ? 'light' : 'dark');
+        var m = document.getElementById('meta-theme-color');
+        if (m) m.setAttribute('content', saved === 'light' ? '#f3f6fb' : '#0c111b');
+      } catch (e) {}
+    })();
+  </script>
+  <link rel="stylesheet" href="/styles.css?v=3" />
+  <script type="importmap">
+    {
+      "imports": {
+        "three": "https://cdn.jsdelivr.net/npm/three@0.169.0/build/three.module.js",
+        "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.169.0/examples/jsm/"
+      }
+    }
+  </script>
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">
+      <div class="brand-badge">L2A3</div>
+      <div>
+        <h1>Level 2 Area 3 — 5D Racking &amp; Putaway Visualizer</h1>
+        <p class="subtitle">Rev 01.15 · 221 Rack-Levels · 500 Slots · Live OpenMES Integration</p>
+      </div>
+    </div>
+
+    <div class="mode-controls">
+      <div class="mode-pills" role="group" aria-label="Data Mode">
+        <button id="btn-mode-live" class="pill active" data-mode="live">
+          <span class="dot live-dot" id="live-dot"></span> LIVE OpenMES
+        </button>
+        <button id="btn-mode-playback" class="pill" data-mode="day0">5D Burn-Down Playback</button>
+      </div>
+
+      <div id="slider-wrap" class="slider-wrap hidden">
+        <label for="day-slider">Day <strong id="day-label">0</strong></label>
+        <input id="day-slider" type="range" min="0" max="5" step="1" value="0" />
+      </div>
+
+      <button id="btn-refresh" class="btn-secondary" title="Refresh Live OpenMES">Refresh</button>
+      <button id="btn-theme-toggle" class="btn-secondary" type="button" aria-label="Toggle light and dark mode">☀ Light</button>
+      <button id="btn-admin-toggle" class="btn-secondary" title="Push Day State to OpenMES">Admin Sync</button>
+    </div>
+  </header>
+
+  <div id="live-banner" class="banner hidden"></div>
+
+  <section class="kpi-strip">
+    <div class="kpi-card">
+      <span class="kpi-label">Locations</span>
+      <strong id="kpi-locations" class="kpi-val">221</strong>
+      <span class="kpi-sub">500 total slot cap</span>
+    </div>
+    <div class="kpi-card">
+      <span class="kpi-label">Active Units</span>
+      <strong id="kpi-units" class="kpi-val">—</strong>
+      <span id="kpi-pieces" class="kpi-sub">— pcs</span>
+    </div>
+    <div class="kpi-card">
+      <span class="kpi-label">Active Mass</span>
+      <strong id="kpi-mass" class="kpi-val">—</strong>
+      <span class="kpi-sub">Day 0 baseline: 146,316.9 kg</span>
+    </div>
+    <div class="kpi-card">
+      <span class="kpi-label">Strict Slots Used</span>
+      <strong id="kpi-strict" class="kpi-val">—</strong>
+      <span id="kpi-phys" class="kpi-sub">Physical: —</span>
+    </div>
+    <div class="kpi-card">
+      <span class="kpi-label">Spare Slots</span>
+      <strong id="kpi-spare" class="kpi-val accent-green">—</strong>
+      <span id="kpi-freed" class="kpi-sub">Freed bays: 0</span>
+    </div>
+    <div class="kpi-card">
+      <span class="kpi-label">SWL Breaches</span>
+      <strong id="kpi-breaches" class="kpi-val accent-green">0</strong>
+      <span id="kpi-alerts" class="kpi-sub">Reorder watch: 0</span>
+    </div>
+  </section>
+
+  <section class="toolbar">
+    <div class="tabs">
+      <button class="tab active" data-view="2d">2D Floor &amp; Rack Map</button>
+      <button class="tab" data-view="3d">3D Isometric Warehouse</button>
+      <button class="tab" data-view="table">SKU &amp; Reorder Table</button>
+    </div>
+
+    <div class="filters">
+      <input id="search-input" type="search" placeholder="Search SKU (U1, U85), MPN, or Location (R02-R01-L1)..." />
+      <select id="kit-filter">
+        <option value="all">All PNM Kits (58 SKUs)</option>
+      </select>
+      <select id="status-filter">
+        <option value="all">All Locations (221)</option>
+        <option value="occupied">Occupied Only</option>
+        <option value="spare">Spare / Empty Only</option>
+        <option value="span">SPAN (&gt;1.2 m)</option>
+        <option value="heavy">Heavy (&gt;1,500 kg)</option>
+        <option value="floor">Floor / Cantilever</option>
+        <option value="alert">Reorder Alert (&lt;=25%)</option>
+      </select>
+      <select id="color-mode">
+        <option value="mode">Color: Slot / Rack Type</option>
+        <option value="swl">Color: SWL Utilization %</option>
+        <option value="fill">Color: Occupancy / Burn-Down</option>
+      </select>
+    </div>
+  </section>
+
+  <main class="workspace">
+    <div class="stage-pane">
+      <!-- 2D VIEW -->
+      <div id="view-2d" class="view-panel">
+        <div class="legend-bar">
+          <span><i class="swatch sw-2x1"></i>2x1 Standard</span>
+          <span><i class="swatch sw-span"></i>SPAN (&gt;1.2m Locked)</span>
+          <span><i class="swatch sw-fl3"></i>Floor-Only (No L2)</span>
+          <span><i class="swatch sw-cant"></i>Cantilever 3-Tier</span>
+          <span><i class="swatch sw-hwy"></i>Highway Floor</span>
+          <span><i class="swatch sw-spare"></i>Spare / Emptied</span>
+        </div>
+
+        <div class="highway-banner">
+          <span>⬅ MAIN TRANSPORT HIGHWAY (Rack 01 End — Heavy Items &amp; Priority Pick Access)</span>
+          <span class="hwy-note">Rows 1–6 Blue 2.7×1.2m · Rows 7–10 Magenta 3.3×1.2m · Rows 11–12 Floor 4.0×1.5m · Zone 3 Cantilever &amp; Highway</span>
+        </div>
+
+        <div id="rack-grid-root" class="rack-grid-root"></div>
+      </div>
+
+      <!-- 3D VIEW -->
+      <div id="view-3d" class="view-panel hidden">
+        <div class="three-overlay">
+          <span>Drag: Rotate · Right-Drag: Pan · Scroll: Zoom · Click any bay/pallet to inspect</span>
+          <button id="btn-reset-cam" class="btn-secondary btn-sm">Reset Camera</button>
+        </div>
+        <div id="three-container" class="three-container"></div>
+      </div>
+
+      <!-- SKU TABLE VIEW -->
+      <div id="view-table" class="view-panel hidden">
+        <div class="table-wrap">
+          <table class="sku-table">
+            <thead>
+              <tr>
+                <th>Tag</th>
+                <th>Category</th>
+                <th>Description</th>
+                <th>L×W×H (mm)</th>
+                <th>Unit Wt</th>
+                <th>SPQ</th>
+                <th>Live Units</th>
+                <th>Live Qty</th>
+                <th>% Left</th>
+                <th>Assigned Locations</th>
+              </tr>
+            </thead>
+            <tbody id="sku-table-body"></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <aside class="inspector" id="inspector">
+      <div class="inspector-header">
+        <div>
+          <span class="insp-eyebrow">Location Inspector</span>
+          <h2 id="insp-loc-id">Select a Rack Bay</h2>
+        </div>
+        <span id="insp-badge" class="badge">—</span>
+      </div>
+      <div id="insp-body" class="inspector-body">
+        <p class="muted">Click any rack bay in the 2D Map or 3D Warehouse to inspect SWL, L1 clearance, slot locking, SKU dimensions, and 5-day burn-down.</p>
+      </div>
+    </aside>
+  </main>
+
+  <!-- Admin Push Modal -->
+  <div id="admin-modal" class="modal hidden">
+    <div class="modal-card">
+      <h3>Sync Simulation State to OpenMES</h3>
+      <p class="muted">Push a Day 0–5 snapshot to <code>https://openmes.my-edu.my/</code> via <code>/api/v1/erp/material-lots/import</code>.</p>
+      <div class="form-row">
+        <label for="admin-day">Target Day</label>
+        <select id="admin-day">
+          <option value="0">Day 0 — Initial Inbound Putaway (225 units / 146,316.9 kg)</option>
+          <option value="1">Day 1 — End of Day 1 (199 units)</option>
+          <option value="2">Day 2 — End of Day 2 (165 units)</option>
+          <option value="3">Day 3 — End of Day 3 (129 units)</option>
+          <option value="4">Day 4 — End of Day 4 (93 units)</option>
+          <option value="5">Day 5 — End of Day 5 (53 units)</option>
+        </select>
+      </div>
+      <div class="form-row">
+        <label for="admin-pin">Admin PIN</label>
+        <input id="admin-pin" type="password" placeholder="Enter RACKVIZ_ADMIN_PIN" />
+      </div>
+      <div id="admin-msg" class="admin-msg"></div>
+      <div class="modal-actions">
+        <button id="btn-admin-cancel" class="btn-secondary">Cancel</button>
+        <button id="btn-admin-submit" class="btn-primary">Push to OpenMES</button>
+      </div>
+    </div>
+  </div>
+
+  <script type="module" src="/app.js?v=3"></script>
+</body>
+</html>
