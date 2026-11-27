@@ -300,6 +300,9 @@ class RackHandler(BaseHTTPRequestHandler):
         if p == "/app.js":
             self.send_file("app.js", "application/javascript; charset=utf-8", head_only=head_only)
             return
+        if p == "/sim3d.js":
+            self.send_file("sim3d.js", "application/javascript; charset=utf-8", head_only=head_only)
+            return
         if p == "/robots.txt":
             robots = b"User-agent: *\nAllow: /\nDisallow: /api/\nSitemap: https://rack.my-edu.my/sitemap.xml\n"
             self.send_bytes(robots, "text/plain; charset=utf-8", cache_control="public, max-age=3600", head_only=head_only)

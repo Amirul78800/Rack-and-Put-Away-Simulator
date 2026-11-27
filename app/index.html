@@ -43,7 +43,7 @@
       } catch (e) {}
     })();
   </script>
-  <link rel="stylesheet" href="/styles.css?v=5" />
+  <link rel="stylesheet" href="/styles.css?v=6" />
   <script type="importmap">
     {
       "imports": {
@@ -121,6 +121,7 @@
     <div class="tabs">
       <button class="tab active" data-view="2d">2D Floor &amp; Rack Map</button>
       <button class="tab" data-view="3d">3D Isometric Warehouse</button>
+      <button class="tab" data-view="sim">3D Simulation</button>
       <button class="tab" data-view="table">SKU &amp; Reorder Table</button>
     </div>
 
@@ -174,6 +175,78 @@
           <button id="btn-reset-cam" class="btn-secondary btn-sm">Reset Camera</button>
         </div>
         <div id="three-container" class="three-container"></div>
+      </div>
+
+      <!-- 3D SIMULATION VIEW -->
+      <div id="view-sim" class="view-panel hidden">
+        <div class="sim-controls">
+          <div class="sim-ctrl-group">
+            <label for="sim-scenario">Scenario</label>
+            <select id="sim-scenario">
+              <option value="s1">S1 — Filling for 5D (0 → 225 IN ←)</option>
+              <option value="s2">S2 — Daily Operation Take-Out (5D OUT →)</option>
+              <option value="s3">S3 — Concurrent Take-Out + Refill (IN ← / OUT →)</option>
+            </select>
+          </div>
+
+          <div class="sim-ctrl-group">
+            <label>Equipment Fleet (<strong id="sim-fleet-total">4</strong>/10 max)</label>
+            <div class="sim-stepper-row">
+              <span class="sim-chip jack">Jacks</span>
+              <button id="sim-jack-dec" class="btn-secondary btn-xs" type="button">−</button>
+              <strong id="sim-jack-count">2</strong>
+              <button id="sim-jack-inc" class="btn-secondary btn-xs" type="button">+</button>
+              <span class="sim-chip stacker">Stackers</span>
+              <button id="sim-stack-dec" class="btn-secondary btn-xs" type="button">−</button>
+              <strong id="sim-stack-count">2</strong>
+              <button id="sim-stack-inc" class="btn-secondary btn-xs" type="button">+</button>
+            </div>
+          </div>
+
+          <div class="sim-ctrl-group">
+            <label>Playback</label>
+            <div class="sim-btn-row">
+              <button id="sim-play-btn" class="btn-primary btn-sm" type="button">▶ Play</button>
+              <button id="sim-reset-btn" class="btn-secondary btn-sm" type="button">↺ Reset</button>
+              <select id="sim-speed" title="Simulation speed">
+                <option value="1">1×</option>
+                <option value="2" selected>2×</option>
+                <option value="5">5×</option>
+                <option value="10">10×</option>
+              </select>
+            </div>
+          </div>
+
+          <div class="sim-ctrl-group">
+            <label>Camera</label>
+            <div class="sim-btn-row">
+              <button id="sim-cam-overview" class="btn-secondary btn-sm" type="button">Overview</button>
+              <button id="sim-cam-shutter" class="btn-secondary btn-sm" type="button">Shutter &amp; Hwy</button>
+              <button id="sim-cam-aisles" class="btn-secondary btn-sm" type="button">Aisles</button>
+            </div>
+          </div>
+        </div>
+
+        <div class="sim-telemetry">
+          <div class="sim-stat"><span>Phase</span><strong id="sim-stat-phase">Ready — S1 Putaway</strong></div>
+          <div class="sim-stat"><span>Sim Time</span><strong id="sim-stat-time">00:00</strong></div>
+          <div class="sim-stat"><span>Rack Units</span><strong id="sim-stat-units">0 / 225</strong></div>
+          <div class="sim-stat"><span>Fill %</span><strong id="sim-stat-fill">0%</strong></div>
+          <div class="sim-stat"><span>IN ←</span><strong id="sim-stat-in" class="accent-green">0</strong></div>
+          <div class="sim-stat"><span>OUT →</span><strong id="sim-stat-out">0</strong></div>
+          <div class="sim-stat"><span>Spare Bays</span><strong id="sim-stat-spare">—</strong></div>
+          <div class="sim-stat"><span>Aisle Waits</span><strong id="sim-stat-waits">0</strong></div>
+        </div>
+
+        <div id="sim-container" class="three-container sim-container"></div>
+
+        <div class="sim-legend">
+          <span><i class="swatch" style="background:#eab308"></i>Pallet Jack (Floor / L1 Only)</span>
+          <span><i class="swatch" style="background:#f97316"></i>Pallet Stacker (L1–L3 / Heavy)</span>
+          <span><i class="swatch" style="background:#2563eb"></i>Pallet + Boxes (45 SKUs)</span>
+          <span><i class="swatch" style="background:#d97706"></i>Timber Crate / Strut Bundle (13 Crating SKUs)</span>
+          <span><i class="swatch" style="background:#10b981"></i>Shutter Door IN ← / <i class="swatch" style="background:#f43f5e"></i> OUT →</span>
+        </div>
       </div>
 
       <!-- SKU TABLE VIEW -->
@@ -242,6 +315,6 @@
     </div>
   </div>
 
-  <script type="module" src="/app.js?v=5"></script>
+  <script type="module" src="/app.js?v=6"></script>
 </body>
 </html>

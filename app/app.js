@@ -1,5 +1,7 @@
 let THREE = null;
 let OrbitControls = null;
+let simCtrl = null;
+let simModulePromise = null;
 
 const state = {
   mode: 'live',
@@ -499,9 +501,25 @@ async function render3D() {
   }
 }
 
+async function ensureSimController() {
+  if (simCtrl) return simCtrl;
+  if (!simModulePromise) {
+    simModulePromise = import('/sim3d.js?v=6').then((mod) => {
+      simCtrl = mod.createSimulationController({
+        container: document.getElementById('sim-container'),
+        getData: () => state.data,
+        getTheme: () => document.documentElement.getAttribute('data-theme') || 'dark',
+        onSelectLocation: (locId) => selectLocation(locId),
+      });
+      return simCtrl;
+    });
+  }
+  return simModulePromise;
+}
+
 function selectLocation(locId) {
   state.selectedLocId = locId;
-  render2D();
+  if (state.view === '2d') render2D();
   renderInspector();
   if (state.view === '3d') render3D();
 }
@@ -511,7 +529,12 @@ function renderAll() {
   renderKPIs();
   if (state.view === '2d') render2D();
   else if (state.view === '3d') render3D();
-  else renderTable();
+  else if (state.view === 'sim') {
+    ensureSimController().then((ctrl) => {
+      ctrl.onDataUpdated();
+      ctrl.activate();
+    });
+  } else renderTable();
   renderInspector();
 }
 
@@ -564,7 +587,9 @@ for (const tab of document.querySelectorAll('.tab')) {
     state.view = tab.dataset.view;
     document.getElementById('view-2d').classList.toggle('hidden', state.view !== '2d');
     document.getElementById('view-3d').classList.toggle('hidden', state.view !== '3d');
+    document.getElementById('view-sim').classList.toggle('hidden', state.view !== 'sim');
     document.getElementById('view-table').classList.toggle('hidden', state.view !== 'table');
+    if (simCtrl && state.view !== 'sim') simCtrl.deactivate();
     renderAll();
   });
 }
@@ -621,6 +646,7 @@ function applyTheme(theme) {
     state.three.scene.background.setHex(isLight ? 0xe8eef7 : 0x090e17);
     state.three.floor.material.color.setHex(isLight ? 0xdbe4f0 : 0x111827);
   }
+  if (simCtrl) simCtrl.setTheme(next);
 }
 
 if (els.btnThemeToggle) {

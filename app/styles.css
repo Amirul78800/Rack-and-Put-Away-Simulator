@@ -383,6 +383,84 @@ body {
   position: relative;
 }
 
+/* 3D SIMULATION CONTROLS & TELEMETRY */
+.sim-controls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  align-items: flex-end;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 10px 12px;
+  margin-bottom: 10px;
+}
+.sim-ctrl-group {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.sim-ctrl-group label {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--muted);
+  font-weight: 700;
+}
+.sim-ctrl-group select {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  color: var(--text);
+  border-radius: 6px;
+  padding: 6px 8px;
+  font-size: 12px;
+}
+.sim-stepper-row, .sim-btn-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+.sim-chip {
+  font-size: 11px;
+  font-weight: 700;
+  padding: 3px 7px;
+  border-radius: 999px;
+}
+.sim-chip.jack { background: rgba(234, 179, 8, 0.16); color: #eab308; border: 1px solid rgba(234, 179, 8, 0.4); }
+.sim-chip.stacker { background: rgba(249, 115, 22, 0.16); color: #f97316; border: 1px solid rgba(249, 115, 22, 0.4); }
+.btn-xs {
+  padding: 3px 8px;
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1.1;
+  border-radius: 5px;
+}
+.sim-telemetry {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(110px, 1fr));
+  gap: 8px;
+  margin-bottom: 10px;
+}
+.sim-stat {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  padding: 6px 9px;
+}
+.sim-stat span { display: block; font-size: 10px; color: var(--muted); text-transform: uppercase; }
+.sim-stat strong { font-size: 13px; }
+.sim-container { height: 610px; }
+.sim-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 14px;
+  margin-top: 8px;
+  font-size: 11px;
+  color: var(--muted);
+}
+.sim-legend span { display: inline-flex; align-items: center; gap: 5px; }
+
 .table-wrap { overflow-x: auto; max-height: 680px; }
 .sku-table { width: 100%; border-collapse: collapse; font-size: 12px; }
 .sku-table th, .sku-table td {
