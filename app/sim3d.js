@@ -9,10 +9,10 @@ let OrbitControls = null;
 // +x = East (toward Shutter Door), +z = South (Row 1 -> 12 depth), +y = Up
 export const WH_WIDTH = 53.5;
 export const WH_DEPTH = 46.0;
-export const HWY_Z_IN = 5.2;     // Strictly Westbound (-x) Highway lane
-export const HWY_Z_OUT = 7.8;    // Strictly Eastbound (+x) Highway lane (2.6m south of HWY_Z_IN)
-export const PARK_Z = 9.45;      // Open apron south of Highway lanes, north of Row headers (z>=11.2)
-export const HWY_WALL_Z = 3.85;  // Access lane in front of HWY-FLOOR / CANT / Row 1 corner
+export const HWY_Z_IN = 5.45;    // Strictly Westbound (-x) Highway lane (>=4.57m clear for 2.1m U11 through Shutter postN=4.3)
+export const HWY_Z_OUT = 7.95;   // Strictly Eastbound (+x) Highway lane (2.5m south of HWY_Z_IN)
+export const PARK_Z = 9.68;      // Open apron south of Highway lanes (>=0.09m below 7.95 vertical exits, >=0.85m X-clear of columns)
+export const HWY_WALL_Z = 4.10;  // Parallel access lane in front of HWY-FLOOR / CANT / Row 1 (>=0.16m south of HWY-FLOOR-01 rack)
 export const SHUTTER_IN_X = 51.2;
 export const SHUTTER_OUT_X = 53.0;
 export const ROW_TOP_Z = 11.2;
@@ -26,18 +26,18 @@ export const AISLE_X = {
   aisle6: 39.4,
 };
 
-// Dedicated parking stalls spaced >=1.8m apart, >=2.0m from aisle lanes, >=1.1m from shutter posts
+// Dedicated parking stalls spaced >=1.9m apart, >=0.85m clear of columns, and >=1.30m clear of aisle wait lanes
 export const PARKING_STALLS = [
-  { x: 7.1, z: PARK_Z },
-  { x: 9.3, z: PARK_Z },
-  { x: 15.45, z: PARK_Z },
-  { x: 22.15, z: PARK_Z },
-  { x: 28.85, z: PARK_Z },
-  { x: 35.8, z: PARK_Z },
-  { x: 44.1, z: PARK_Z },
-  { x: 45.9, z: PARK_Z },
-  { x: 47.7, z: PARK_Z },
-  { x: 49.5, z: PARK_Z },
+  { x: 8.1, z: PARK_Z },
+  { x: 14.35, z: PARK_Z },
+  { x: 16.25, z: PARK_Z },
+  { x: 20.8, z: PARK_Z },
+  { x: 22.90, z: PARK_Z },
+  { x: 27.7, z: PARK_Z },
+  { x: 29.60, z: PARK_Z },
+  { x: 36.35, z: PARK_Z },
+  { x: 45.2, z: PARK_Z },
+  { x: 47.4, z: PARK_Z },
 ];
 
 export const COLUMNS_POS = (() => {
@@ -49,6 +49,18 @@ export const COLUMNS_POS = (() => {
   }
   return cols;
 })();
+
+export function normalizeSkusMap(rawSkus) {
+  if (!rawSkus) return {};
+  if (Array.isArray(rawSkus)) {
+    const map = {};
+    for (const s of rawSkus) {
+      if (s && s.tag) map[s.tag] = s;
+    }
+    return map;
+  }
+  return rawSkus;
+}
 
 export function tierNum(loc) {
   if (!loc) return 1;
@@ -88,7 +100,7 @@ export function getBayPose(loc) {
       dep: 1.2,
       axis: 'x',
       aisleKey: 'hwy',
-      aisleX: 24.4,
+      aisleX: 22.8,
       aisleZ: HWY_WALL_Z,
       faceX: 0,
       faceZ: -1,
@@ -98,6 +110,9 @@ export function getBayPose(loc) {
 
   if (row === 'Line 1 (Cant)') {
     const cx = 33.6 + (bay - 1) * 6.5;
+    // Offset access points cleanly clear of Aisle 5 (32.70) and Aisle 6 (38.90):
+    // CANT-R01 @ 35.90 -> [33.22..38.34]; CANT-R02 @ 42.80 -> [40.12..45.24]
+    const accessX = bay === 1 ? 35.9 : (bay === 2 ? 42.8 : 46.6);
     return {
       key: `CANT-R0${bay}`,
       x: cx,
@@ -106,7 +121,7 @@ export function getBayPose(loc) {
       dep: 1.2,
       axis: 'x',
       aisleKey: 'hwy',
-      aisleX: cx,
+      aisleX: accessX,
       aisleZ: HWY_WALL_Z,
       faceX: 0,
       faceZ: -1,
@@ -348,6 +363,59 @@ export function buildObstacleBoxes(locations) {
   return boxes;
 }
 
+export function getCargoCarrySpec(tag, sku, wt, type = 'jack') {
+  const L_mm = Number(sku?.L_mm || 1100);
+  const W_mm = Number(sku?.W_mm || 1000);
+  const weight = Number(wt || sku?.unit_wt_kg || 450);
+  const scale = 0.84;
+  const L_m = (L_mm / 1000) * scale;
+  const W_m = (W_mm / 1000) * scale;
+  // Items >1.5m travel lengthwise along vehicle (+Z local) so 3.05m-7.5m loads fit cleanly
+  // through the 4.80m Shutter Door and 4.0-4.4m aisles without clipping uprights or posts.
+  const isLengthwise = L_mm > 1500;
+  return {
+    tag,
+    L_mm,
+    W_mm,
+    wt: weight,
+    carryAxis: isLengthwise ? 'z' : 'x',
+    halfX: isLengthwise ? W_m / 2 : L_m / 2,
+    halfZ: isLengthwise ? L_m / 2 : W_m / 2,
+    offsetZ: isLengthwise ? 0.12 : (type === 'stacker' ? 0.72 : 0.64),
+  };
+}
+
+export function getVehicleWorldAABB(cx, cz, yaw, spec) {
+  let uMinX = -0.40;
+  let uMaxX = 0.40;
+  let uMinZ = -0.78;
+  let uMaxZ = 0.86;
+  if (spec) {
+    uMinX = Math.min(uMinX, -spec.halfX);
+    uMaxX = Math.max(uMaxX, spec.halfX);
+    uMinZ = Math.min(uMinZ, spec.offsetZ - spec.halfZ);
+    uMaxZ = Math.max(uMaxZ, spec.offsetZ + spec.halfZ);
+  }
+  const c = Math.cos(yaw || 0);
+  const s = Math.sin(yaw || 0);
+  const corners = [
+    [uMinX, uMinZ],
+    [uMaxX, uMinZ],
+    [uMaxX, uMaxZ],
+    [uMinX, uMaxZ],
+  ];
+  let minX = Infinity, maxX = -Infinity, minZ = Infinity, maxZ = -Infinity;
+  for (const [lx, lz] of corners) {
+    const wx = cx + lx * c + lz * s;
+    const wz = cz - lx * s + lz * c;
+    if (wx < minX) minX = wx;
+    if (wx > maxX) maxX = wx;
+    if (wz < minZ) minZ = wz;
+    if (wz > maxZ) maxZ = wz;
+  }
+  return { minX, maxX, minZ, maxZ, uMinZ, uMaxZ };
+}
+
 export function inferCorridor(x, z) {
   if (z >= 10.2) {
     let best = 'aisle1';
@@ -382,51 +450,45 @@ export function buildCorridorPath(fromX, fromZ, toX, toZ, targetAisle, targetLoc
   const dstAisle = targetAisle || inferCorridor(toX, toZ);
 
   const isDstVertical = dstAisle !== 'hwy' && dstAisle !== 'park';
-  const enterX = isDstVertical ? AISLE_X[dstAisle] - 0.90 : toX;
-  const exitX = curAisle !== 'hwy' ? AISLE_X[curAisle] + 0.90 : fromX;
+  const enterX = isDstVertical ? AISLE_X[dstAisle] - 1.30 : toX;
+  const exitX = curAisle !== 'hwy' ? AISLE_X[curAisle] : fromX;
 
   const goingEast = enterX > exitX + 0.15;
   const hwyLaneZ = goingEast ? HWY_Z_OUT : HWY_Z_IN;
 
-  // Case 1: Both endpoints inside the SAME vertical working aisle
+  // Case 1: Both endpoints inside the SAME vertical working aisle (centerline AISLE_X!)
   if (curAisle !== 'hwy' && curAisle === dstAisle && toZ >= 10.2) {
-    pushUnique(AISLE_X[curAisle] - 0.90, toZ, curAisle);
+    pushUnique(AISLE_X[curAisle], toZ, curAisle);
     return pts;
   }
 
-  // Step 1: Exit vertical aisle on dedicated OUT side (+0.90m, 1.80m clear of incoming IN lane at -0.90m!)
+  // Step 1: Exit vertical aisle straight down centerline AISLE_X -> Highway lane (zero diagonal sweeps!)
   if (curAisle !== 'hwy') {
-    pushUnique(exitX, fromZ, curAisle);
     pushUnique(exitX, 8.6, curAisle);
     pushUnique(exitX, hwyLaneZ, 'hwy');
   } else if (fromZ <= HWY_WALL_Z + 0.35 && dstAisle !== 'hwy_wall') {
-    // Exiting a North-wall bay (e.g. CANT-R01..03 / HWY-FLOOR / R01-R13):
-    // Pull 1.8m West downstream on wall apron BEFORE crossing Highway lanes so queued arrivals on East never block exit!
-    const pullOutX = goingEast ? Math.max(2.6, fromX - 1.85) : fromX;
-    if (Math.abs(pullOutX - fromX) > 0.2) {
-      pushUnique(pullOutX, HWY_WALL_Z, 'hwy');
-    }
-    pushUnique(pullOutX, hwyLaneZ, 'hwy');
+    // Exit North-wall bay straight down from current bay X to Highway lane (0 horizontal interference with aisles)
+    pushUnique(fromX, hwyLaneZ, 'hwy');
   } else if (Math.abs(fromZ - hwyLaneZ) > 0.15 && Math.abs(enterX - fromX) > 0.25) {
     pushUnique(fromX, hwyLaneZ, 'hwy');
   }
 
-  // Step 2: Travel horizontally along one-way Highway lane (7.4 Eastbound or 5.4 Westbound)
+  // Step 2: Travel horizontally along one-way Highway lane (7.95 Eastbound or 5.45 Westbound)
   const curLast = pts.length ? pts[pts.length - 1] : { x: fromX, z: fromZ };
-  const dstHwyX = (dstAisle === 'hwy' && toZ <= HWY_WALL_Z + 0.35) ? toX + 1.85 : enterX;
+  const dstHwyX = enterX;
   if (Math.abs(dstHwyX - curLast.x) > 0.15) {
     pushUnique(dstHwyX, hwyLaneZ, 'hwy');
   }
 
   // Step 3: Turn cleanly off Highway into target destination
   if (isDstVertical) {
-    // Buffer on IN lane (-0.90m) at z = 8.4: 1.80m clear of any vehicle exiting on +0.90m!
-    pushUnique(AISLE_X[dstAisle] - 0.90, 8.4, dstAisle, dstAisle);
-    pushUnique(AISLE_X[dstAisle] - 0.90, toZ, dstAisle, dstAisle);
+    // Wait cleanly off-Highway at (AISLE_X - 1.30, 9.95) >= 1.30m west & 1.70m south of HWY_Z_OUT so exiting traffic
+    // can pass unobstructed straight down AISLE_X even with 1.2m wide crates, then step orthogonally onto AISLE_X.
+    pushUnique(AISLE_X[dstAisle] - 1.30, 9.95, dstAisle, dstAisle);
+    pushUnique(AISLE_X[dstAisle], 9.95, dstAisle, dstAisle);
     pushUnique(AISLE_X[dstAisle], toZ, dstAisle, dstAisle);
   } else if (dstAisle === 'hwy' && toZ <= HWY_WALL_Z + 0.35 && targetLockKey) {
-    // Wait on East shoulder (toX + 1.85, 5.4) if North-wall bay is occupied, then step cleanly into (toX, 3.85)
-    pushUnique(toX + 1.85, HWY_Z_IN, 'hwy_wall', targetLockKey);
+    // Align straight in front of North-wall bay on HWY_Z_IN, then slide laterally into HWY_WALL_Z
     pushUnique(toX, HWY_Z_IN, 'hwy_wall', targetLockKey);
     pushUnique(toX, toZ, 'hwy_wall', targetLockKey);
   } else {
@@ -898,6 +960,8 @@ export function createSimulationController({ container, getData, getTheme, onSel
     outboundBatches: [],
     vehicles: [],
     aisleOccupant: new Map(),
+    bypassClaims: new Set(),
+    bypassCount: 0,
     cargoGroup: null,
     fleetGroup: null,
   };
@@ -1104,14 +1168,14 @@ export function createSimulationController({ container, getData, getTheme, onSel
     const laneMat = new THREE.MeshBasicMaterial({ color: 0x3b82f6, transparent: true, opacity: 0.24 });
     const hwyStrip = new THREE.Mesh(new THREE.PlaneGeometry(49.5, 4.2), laneMat);
     hwyStrip.rotation.x = -Math.PI / 2;
-    hwyStrip.position.set(27.5, 0.008, 6.4);
+    hwyStrip.position.set(27.5, 0.008, 6.7);
     scene.add(hwyStrip);
 
     const dashMat = new THREE.MeshBasicMaterial({ color: 0xfacc15, transparent: true, opacity: 0.65 });
     for (let x = 5.0; x < 50.5; x += 2.2) {
       const dash = new THREE.Mesh(new THREE.PlaneGeometry(1.1, 0.12), dashMat);
       dash.rotation.x = -Math.PI / 2;
-      dash.position.set(x, 0.012, 6.4);
+      dash.position.set(x, 0.012, 6.7);
       scene.add(dash);
     }
 
@@ -1129,7 +1193,7 @@ export function createSimulationController({ container, getData, getTheme, onSel
       new THREE.MeshBasicMaterial({ map: makeLabelTexture('HIGHWAY  ← IN / OUT →', 'rgba(15,23,42,0.72)', '#93c5fd', 320, 64), transparent: true })
     );
     hwyLbl.rotation.x = -Math.PI / 2;
-    hwyLbl.position.set(22.5, 0.015, 6.4);
+    hwyLbl.position.set(22.5, 0.015, 6.7);
     scene.add(hwyLbl);
 
     const aisleHighlight = new THREE.MeshBasicMaterial({ color: 0x64748b, transparent: true, opacity: 0.14 });
@@ -1333,7 +1397,7 @@ export function createSimulationController({ container, getData, getTheme, onSel
     sim.slots = [];
     sim.slotsByLoc.clear();
 
-    const skus = data.skus || {};
+    const skus = normalizeSkusMap(data.skus);
     const locations = data.locations || [];
 
     for (const loc of locations) {
@@ -1401,7 +1465,7 @@ export function createSimulationController({ container, getData, getTheme, onSel
     slot.currentWt = occupied ? (wt || 0) : 0;
 
     if (occupied && tag) {
-      const skus = getData()?.skus || {};
+      const skus = normalizeSkusMap(getData()?.skus);
       const sku = skus[tag];
       const useWide = forceWide || slot.isWide || ((sku?.L_mm || 0) > 1250);
       const pos = useWide && !slot.isCant && slot.slotIdx === 0
@@ -1416,9 +1480,20 @@ export function createSimulationController({ container, getData, getTheme, onSel
     }
   }
 
+  function taskPriorityRank(sku, wt) {
+    const L = Number(sku?.L_mm || 1100);
+    const w = Number(wt || sku?.unit_wt_kg || 450);
+    if (L > 5500) return 0; // 7.5m Whip Pipe, 6.1m Unistrut, 5.8m Vienna Arm first
+    if (L > 3500) return 1; // 3.85m U1 Busway crates
+    if (L > 2200) return 2; // 3.05m Basket Trays
+    if (L > 1250) return 3; // 1.3m-2.2m crates / pipes / flex
+    if (w > 1500) return 4; // Heavy standard pallets (e.g. U85)
+    return 5;               // Standard 1-pallet SKUs
+  }
+
   function planScenarioQueues() {
     const data = getData();
-    const skus = data?.skus || {};
+    const skus = normalizeSkusMap(data?.skus);
     sim.taskQueue = [];
     sim.outboundBatches = [];
     sim.aisleOccupant.clear();
@@ -1428,8 +1503,11 @@ export function createSimulationController({ container, getData, getTheme, onSel
     if (sim.scenario === 's1') {
       for (const s of sim.slots) setSlotCargo(s, null, 0, false);
 
-      // Interleave aisles & tiers smoothly for S1 putaway
+      // Long-item-first dispatch: oversize/long items move IN first before standard pallets
       const sorted = [...day0Slots].sort((a, b) => {
+        const ra = taskPriorityRank(skus[a.day0Tag], a.day0Wt);
+        const rb = taskPriorityRank(skus[b.day0Tag], b.day0Wt);
+        if (ra !== rb) return ra - rb;
         const bayDiff = (a.loc.bay || 1) - (b.loc.bay || 1);
         if (bayDiff !== 0) return bayDiff;
         return a.locId.localeCompare(b.locId);
@@ -1486,7 +1564,13 @@ export function createSimulationController({ container, getData, getTheme, onSel
           });
         }
       }
-      dayPicks.sort((a, b) => (a.slot.loc.bay || 99) - (b.slot.loc.bay || 99));
+      // Long items move OUT first within each day, then Highway-end Rack 01 priority
+      dayPicks.sort((a, b) => {
+        const ra = taskPriorityRank(a.sku, a.wt);
+        const rb = taskPriorityRank(b.sku, b.wt);
+        if (ra !== rb) return ra - rb;
+        return (a.slot.loc.bay || 99) - (b.slot.loc.bay || 99);
+      });
       cumOut += dayPicks.length;
       sim.outboundBatches.push({ day, count: dayPicks.length, cumOut });
 
@@ -1501,17 +1585,24 @@ export function createSimulationController({ container, getData, getTheme, onSel
           .slice(0, 7);
 
         for (const [rTag, rSku] of refillTargets) {
-          const isLong = (rSku.L_mm || 0) > 1250;
+          const L_mm = Number(rSku.L_mm || 1100);
+          const isLong = L_mm > 1250;
           const spare = sim.slots.find((cand) => {
             if (cand.occupied || cand.reservedInbound) return false;
             const l = cand.loc;
             const siblings = sim.slotsByLoc.get(l.location_id) || [cand];
-            // Long >1.25m items require FULL unoccupied bay + matching bay length!
             if (isLong) {
               if (cand.slotIdx !== 0) return false;
               if (siblings.some((sib) => sib.occupied || sib.reservedInbound)) return false;
-              if (cand.pose.len * 1000 < (rSku.L_mm || 0) * 0.92) return false;
+              if (cand.pose.len * 1000 < L_mm * 0.92) return false;
             }
+            // Enforce strict physical rack domain compatibility for oversize items
+            if (L_mm >= 5500 && String(rSku.category || '').includes('Unistrut')) {
+              return l.zone === 'Zone 3' && l.row_line === 'Line 1 (Cant)';
+            }
+            if (L_mm >= 5500) return l.row_line === 'Highway Floor';
+            if (L_mm >= 3500) return String(l.rack_type || '').includes('4.0x1.5m Floor');
+            if (L_mm >= 2500) return String(l.rack_type || '').includes('3.3x1.2m') || String(l.rack_type || '').includes('Floor');
             if (l.zone === 'Zone 3' && l.row_line === 'Line 1 (Cant)') return rTag === 'U12' || rTag === 'U13' || rTag === 'U47';
             if (isLong) return String(l.rack_type || '').includes('Floor') || l.slot_mode === 'SPAN' || l.slot_mode === 'SPARE' || l.row_line.includes('Row 7') || l.row_line.includes('Row 8') || l.row_line.includes('Row 9') || l.row_line.includes('Row 10');
             if ((rSku.unit_wt_kg || 0) > 1500) return tierNum(l) === 1;
@@ -1537,12 +1628,21 @@ export function createSimulationController({ container, getData, getTheme, onSel
             });
           }
         }
+        dayRefills.sort((a, b) => taskPriorityRank(a.sku, a.wt) - taskPriorityRank(b.sku, b.wt));
       }
 
+      // Emit day's long refills/picks up front, then interleave remaining picks & standard refills
+      let pIdx = 0;
       let rIdx = 0;
-      for (let i = 0; i < dayPicks.length; i++) {
-        sim.taskQueue.push(dayPicks[i]);
-        if (sim.scenario === 's3' && i % 3 === 1 && rIdx < dayRefills.length) {
+      while (pIdx < dayPicks.length && taskPriorityRank(dayPicks[pIdx].sku, dayPicks[pIdx].wt) <= 2) {
+        sim.taskQueue.push(dayPicks[pIdx++]);
+      }
+      while (rIdx < dayRefills.length && taskPriorityRank(dayRefills[rIdx].sku, dayRefills[rIdx].wt) <= 2) {
+        sim.taskQueue.push(dayRefills[rIdx++]);
+      }
+      for (; pIdx < dayPicks.length; pIdx++) {
+        sim.taskQueue.push(dayPicks[pIdx]);
+        if (sim.scenario === 's3' && pIdx % 3 === 1 && rIdx < dayRefills.length) {
           sim.taskQueue.push(dayRefills[rIdx++]);
         }
       }
@@ -1594,10 +1694,15 @@ export function createSimulationController({ container, getData, getTheme, onSel
       forkY: 0.06,
       forkReach: 0,
       carryingMesh: null,
+      carryingSpec: null,
       heldAisle: null,
       waitAccum: 0,
       blockWait: 0,
       returningHome: false,
+      bypassing: false,
+      bypassTimer: 0,
+      bypassCooldown: 0,
+      bypassClaimKey: null,
     };
     sim.vehicles.push(v);
     return v;
@@ -1637,6 +1742,7 @@ export function createSimulationController({ container, getData, getTheme, onSel
     if (v.heldAisle && sim.aisleOccupant.get(v.heldAisle) === v.id) {
       sim.aisleOccupant.delete(v.heldAisle);
     }
+    if (v.bypassClaimKey) sim.bypassClaims.delete(v.bypassClaimKey);
     sim.fleetGroup.remove(v.mesh);
     sim.vehicles.splice(idx, 1);
   }
@@ -1658,84 +1764,241 @@ export function createSimulationController({ container, getData, getTheme, onSel
     }
   }
 
+  function getEffectiveSpeed(v) {
+    const base = v.type === 'jack' ? 4.4 : 3.9;
+    if (!v.carryingSpec) return base;
+    const { wt, L_mm } = v.carryingSpec;
+    if (L_mm > 5500 || wt > 2500) return base * 0.52;
+    if (L_mm > 3500 || wt > 1500) return base * 0.64;
+    if (L_mm > 2500 || wt > 1000) return base * 0.74;
+    return base * 0.85;
+  }
+
   function attachCargoToVehicle(v, tag, sku, slot, useWide) {
     const mount = v.mesh.userData.cargoMount;
     while (mount.children.length > 0) mount.remove(mount.children[0]);
-    // Always carry cargo crosswise across forks (axis: 'x' in vehicle local frame so length runs side-to-side, never piercing the mast!)
-    const carryPose = { axis: 'x', len: slot.pose.len, dep: slot.pose.dep, kind: slot.pose.kind };
+    const spec = getCargoCarrySpec(tag, sku, slot.currentWt || v.task?.wt, v.type);
+    const carryPose = { axis: spec.carryAxis, len: slot.pose.len, dep: slot.pose.dep, kind: slot.pose.kind };
     const mesh = buildCargoMesh(tag, sku, carryPose, useWide, slot.isCant, 1);
     mesh.scale.setScalar(0.84);
+    // Align carried bundle/pallet center with OBB carry offset
+    const defaultMountZ = v.type === 'stacker' ? 0.80 : 0.68;
+    mesh.position.z = spec.offsetZ - defaultMountZ;
     mount.add(mesh);
     v.carryingMesh = mesh;
+    v.carryingSpec = spec;
   }
 
   function clearVehicleCargo(v) {
     const mount = v.mesh.userData.cargoMount;
     while (mount.children.length > 0) mount.remove(mount.children[0]);
     v.carryingMesh = null;
+    v.carryingSpec = null;
   }
 
-  function computeSafeAdvance(v, nx, nz, dirX, dirZ) {
-    const r = 0.44;
-    // 1. Static Obstacle AABB guard (racks, columns, office, shutter posts)
+  function aabbOverlap(a, b, pad = 0) {
+    return a.maxX + pad > b.minX && a.minX - pad < b.maxX && a.maxZ + pad > b.minZ && a.minZ - pad < b.maxZ;
+  }
+
+  function getMoveYaw(v, dx, dz, wp) {
+    // Keep 5.8m-7.5m North-wall loads strictly East-West parallel during 4.15 <-> 5.45 <-> 7.95 Highway shifts
+    if (v.carryingSpec && v.carryingSpec.L_mm >= 5000 && v.z <= HWY_Z_OUT + 0.5 && wp && wp.z <= HWY_Z_OUT + 0.5) {
+      if (dx < -0.1) return -Math.PI / 2;
+      if (dx > 0.1) return Math.PI / 2;
+      return v.yaw >= 0 ? Math.PI / 2 : -Math.PI / 2;
+    }
+    return Math.atan2(dx, dz);
+  }
+
+  function computeSafeAdvance(v, nx, nz, dirX, dirZ, wp) {
+    const nextYaw = getMoveYaw(v, dirX, dirZ, wp);
+    const aabb = getVehicleWorldAABB(nx, nz, nextYaw, v.carryingSpec);
+
+    // 1. Static Obstacle OBB/AABB guard (covers BOTH chassis and carried long cargo)
     for (const b of sim.obstacleBoxes) {
-      if (nx + r > b.minX && nx - r < b.maxX && nz + r > b.minZ && nz - r < b.maxZ) {
+      if (aabbOverlap(aabb, b, 0.02)) {
         return { blocked: true, reason: 'obstacle' };
       }
     }
 
-    // 2. Dynamic Vehicle-to-Vehicle Separation & Clear-the-Box Intersection Guard
+    // 2. Dynamic Vehicle & Cargo OBB Separation + Priority Deadlock Breaker
     const movingHoriz = Math.abs(dirX) > 0.7;
     const movingVert = Math.abs(dirZ) > 0.7;
+    const curAabb = getVehicleWorldAABB(v.x, v.z, v.yaw, v.carryingSpec);
+    const vHalfX = (aabb.maxX - aabb.minX) * 0.5;
+    const vHalfZ = (aabb.maxZ - aabb.minZ) * 0.5;
 
     for (const o of sim.vehicles) {
       if (o.uid === v.uid) continue;
+      const oAabb = getVehicleWorldAABB(o.x, o.z, o.yaw, o.carryingSpec);
+      const oHalfX = (oAabb.maxX - oAabb.minX) * 0.5;
+      const oHalfZ = (oAabb.maxZ - oAabb.minZ) * 0.5;
+
       const dx = o.x - v.x;
       const dz = o.z - v.z;
       const curD = Math.hypot(dx, dz);
       const nextD = Math.hypot(o.x - nx, o.z - nz);
 
+      // Compute priority tie-break early so stalled perpendicular junctions never starve; aisle-exit holders always outrank
+      const oStalled = ((o.blockWait || 0) > 0.35 || (o.waitAccum || 0) > 0) && o.state !== 'dwell_pickup' && o.state !== 'dwell_drop';
+      const vPrio = (v.heldAisle ? 2000 : 0) + (v.z >= 7.8 && v.z <= 8.5 ? 900 : (v.z < 8.5 ? 700 : 200)) + (v.state === 'to_drop' ? 500 : 0) - v.uid;
+      const oPrio = (o.heldAisle ? 2000 : 0) + (o.z >= 7.8 && o.z <= 8.5 ? 900 : (o.z < 8.5 ? 700 : 200)) + (o.state === 'to_drop' ? 500 : 0) - o.uid;
+      const canTieBreak = oStalled && ((v.blockWait || 0) > 0.35 || (v.waitAccum || 0) === 0 && (o.waitAccum || 0) > 0) && vPrio > oPrio && !aabbOverlap(aabb, oAabb, 0.005);
+
+      const isParkedIdle = o.state === 'idle' && !o.returningHome;
+      const isWallDocked = o.z <= HWY_WALL_Z + 0.35;
+      // Forbid any move/turn that creates a new physical OBB overlap, and maintain approaching buffer
+      if (aabbOverlap(aabb, oAabb, 0.005) && !aabbOverlap(curAabb, oAabb, 0.005)) {
+        return { blocked: true, reason: 'vehicle', by: o };
+      }
+      if (aabbOverlap(aabb, oAabb, (isParkedIdle || isWallDocked) ? 0.05 : 0.16) && nextD < curD && !canTieBreak) {
+        return { blocked: true, reason: 'vehicle', by: o };
+      }
+
       if (movingHoriz) {
         const dzAbs = Math.abs(o.z - nz);
         const aheadX = (o.x - nx) * dirX;
-        const oMovingHoriz = Math.abs(Math.sin(o.yaw || 0)) > 0.7;
-        // Same Highway lane follower: keep >=1.85m following gap for horizontal peers
-        if (dzAbs < 0.85 && oMovingHoriz && aheadX > 0 && aheadX < 1.85) {
+        const oWp = o.waypoints && o.waypoints[o.wpIdx];
+        const oIntentVert = Boolean(oWp && Math.abs(oWp.z - o.z) > 0.25 && Math.abs(oWp.x - o.x) < 0.35);
+        // Ignore North-wall vehicles still parked at HWY_WALL_Z waiting to pull out (avoid mutual polite deadlock)
+        const oCrossingVert = !isWallDocked && Boolean(o.heldAisle?.startsWith('hwy_bay:') || oIntentVert);
+        const oMovingHoriz = !oCrossingVert && (Math.abs(Math.sin(o.yaw || 0)) > 0.7 || (oWp && Math.abs(oWp.x - o.x) > 0.25));
+        const followDistX = vHalfX + oHalfX + 0.90;
+        if (dzAbs < Math.max(0.85, vHalfZ + oHalfZ + 0.1) && oMovingHoriz && aheadX > 0 && aheadX < followDistX) {
           return { blocked: true, reason: 'vehicle', by: o };
         }
-        // Approaching perpendicular actively-crossing vehicle (only vertical movers inside lane or moving TOWARD lane):
-        // Hold BEFORE the box [1.10, 1.55); if already inside (<1.10m), finish clearing unless colliding.
-        const isParkedIdle = o.state === 'idle' && !o.returningHome;
-        const oDirZ = !oMovingHoriz ? Math.sign(Math.cos(o.yaw || 0)) : 0;
-        const oBlocksLane = dzAbs < 1.35 || (oDirZ !== 0 && (nz - o.z) * oDirZ > 0 && dzAbs < 2.75);
-        if (!isParkedIdle && !oMovingHoriz && oBlocksLane && aheadX >= 1.10 && aheadX < 1.55) {
+        const oDirZ = isWallDocked ? 0 : (oWp
+          ? (Math.abs(oWp.z - o.z) > 0.25 ? Math.sign(oWp.z - o.z) : 0)
+          : (!oMovingHoriz ? Math.sign(Math.cos(o.yaw || 0)) : 0));
+        const oExitingAisle = (oDirZ < 0 && o.z >= 7.8 && o.z <= 9.85) || (oDirZ > 0 && o.heldAisle?.startsWith('hwy_bay:'));
+        // Check actual Z-interval overlap + 0.12m (instead of padded dzAbs) so 10.2m aisle waiters never false-trigger 7.95 braking
+        const zBandHit = aabb.minZ < oAabb.maxZ + 0.12 && aabb.maxZ > oAabb.minZ - 0.12;
+        const oBlocksLane = zBandHit || (oDirZ !== 0 && (nz - o.z) * oDirZ > 0 && dzAbs < (oExitingAisle ? 5.0 : 1.95));
+        const oTurnHalfX = !oMovingHoriz ? Math.max(oHalfX, oHalfZ) : oHalfX;
+        const crossStopMin = vHalfX + oHalfX + 0.25;
+        const crossStopMax = vHalfX + oTurnHalfX + 0.95;
+        if (!isParkedIdle && !oMovingHoriz && oBlocksLane && aheadX >= crossStopMin && aheadX < crossStopMax && !canTieBreak) {
           return { blocked: true, reason: 'vehicle', by: o };
         }
       }
 
-      // Hold upstream BEFORE crossing a horizontal Highway lane if traffic is actively passing OR approaching within 1.9m
-      if (movingVert && !(o.state === 'idle' && !o.returningHome) && (o.z - nz) * dirZ > 0 && (o.z - nz) * dirZ < 2.15) {
+      if (movingVert && !(o.state === 'idle' && !o.returningHome) && (o.waitAccum || 0) === 0 && (o.z - nz) * dirZ > 0 && (o.z - nz) * dirZ < (vHalfZ + oHalfZ + 1.15)) {
         const oDirX = Math.abs(Math.sin(o.yaw || 0)) > 0.7 ? Math.sign(Math.sin(o.yaw)) : 0;
-        const oApproaching = oDirX !== 0 && (nx - o.x) * oDirX >= 0 && (nx - o.x) * oDirX < 1.95;
-        if (Math.abs(o.x - nx) < 1.05 || (oApproaching && (o.blockWait || 0) < 0.25)) {
-          return { blocked: true, reason: 'vehicle', by: o };
-        }
-      }
-
-      if (nextD < 1.35 && nextD < curD) {
-        const dot = (dx * dirX + dz * dirZ) / Math.max(curD, 0.001);
-        if ((dot > 0.55 && nextD < 1.35) || nextD < 1.05) {
-          const oStalled = (o.blockWait || 0) > 0.35 && o.state !== 'dwell_pickup' && o.state !== 'dwell_drop';
-          const vPrio = (v.heldAisle ? 1000 : 0) + (v.state === 'to_drop' ? 500 : 0) - v.uid;
-          const oPrio = (o.heldAisle ? 1000 : 0) + (o.state === 'to_drop' ? 500 : 0) - o.uid;
-          if (oStalled && (v.blockWait || 0) > 0.35 && vPrio > oPrio && nextD >= 1.02) {
-            continue;
-          }
+        const oApproaching = oDirX !== 0 && (nx - o.x) * oDirX >= 0 && (nx - o.x) * oDirX < (vHalfX + oHalfX + 1.05);
+        if ((Math.abs(o.x - nx) < (vHalfX + oHalfX + 0.02) || (oApproaching && (o.blockWait || 0) < 0.25)) && !canTieBreak) {
           return { blocked: true, reason: 'vehicle', by: o };
         }
       }
     }
     return { blocked: false };
+  }
+
+  function tryStartBypass(v, maxConcurrent = 2) {
+    if (v.bypassing || (v.bypassCooldown || 0) > 0 || v.heldAisle || v.state === 'idle' || !v.task) return false;
+    // Cap concurrent bypass maneuvers so vehicles never counter-block each other in pull-out lanes
+    if (sim.vehicles.filter((o) => o.bypassing).length >= maxConcurrent) return false;
+    // Never swing 3.85m-7.5m oversize Highway loads perpendicular into narrow pockets
+    const L_mm = v.carryingSpec?.L_mm || 1100;
+    if (L_mm > 3500) return false;
+    // Only bypass if actually obstructing one of the two Highway lanes
+    const onHwyLane = Math.abs(v.z - HWY_Z_IN) < 0.65 || Math.abs(v.z - HWY_Z_OUT) < 0.65;
+    if (!onHwyLane) return false;
+    // Don't abandon active Shutter IN/OUT dock queues where a linear queue clears faster than detouring
+    if (v.x >= 40.0 && v.state === 'to_pickup' && v.task.kind === 'put') return false;
+    if (v.x >= 43.0 && v.state === 'to_drop' && v.task.kind === 'pick') return false;
+    // Never cut vertically across Highway if another vehicle is already crossing Highway [4.8..8.6] at this X
+    for (const o of sim.vehicles) {
+      if (o.uid === v.uid) continue;
+      if (o.z >= 4.8 && o.z <= 8.6 && Math.abs(o.x - v.x) < 1.0 && (o.bypassing || Math.abs(Math.cos(o.yaw || 0)) > 0.7)) return false;
+    }
+    // Only bypass if swinging South at current X won't collide with obstacles or docked North-wall vehicles
+    const turnAabb = getVehicleWorldAABB(v.x, Math.min(HWY_Z_OUT, v.z + 0.25), 0, v.carryingSpec);
+    for (const b of sim.obstacleBoxes) {
+      if (aabbOverlap(turnAabb, b, 0.08)) return false;
+    }
+    for (const o of sim.vehicles) {
+      if (o.uid === v.uid) continue;
+      if (o.z <= HWY_Z_IN && aabbOverlap(turnAabb, getVehicleWorldAABB(o.x, o.z, o.yaw, o.carryingSpec), 0.25)) return false;
+    }
+
+    const candidates = [];
+
+    // Option A: Free parking stalls at PARK_Z = 9.52 not claimed as an active vehicle's idle stall
+    if (L_mm <= 2200) {
+      for (let i = 0; i < PARKING_STALLS.length; i++) {
+        const claimKey = `park:${i}`;
+        if (sim.bypassClaims.has(claimKey)) continue;
+        const st = PARKING_STALLS[i];
+        const homeOwnerBusy = sim.vehicles.some((o) => o.uid !== v.uid && o.stallIdx === i && (o.state === 'idle' || o.returningHome || (o.state === 'to_drop' && sim.taskQueue.length < 4)));
+        if (homeOwnerBusy) continue;
+        const busy = sim.vehicles.some((o) => o.uid !== v.uid && Math.hypot(o.x - st.x, o.z - st.z) < 2.2);
+        const stallAabb = getVehicleWorldAABB(st.x, st.z, 0, v.carryingSpec);
+        const hitsObs = sim.obstacleBoxes.some((b) => aabbOverlap(stallAabb, b, 0.08));
+        if (!busy && !hitsObs) {
+          candidates.push({ x: st.x, z: st.z, claimKey, aisle: 'park', dist: Math.hypot(st.x - v.x, st.z - v.z) });
+        }
+      }
+    }
+
+    // Option B: Unlocked empty vertical aisle pull-out pocket (AISLE_X, z=10.10 or 12.2 for very long loads)
+    for (const [ak, ax] of Object.entries(AISLE_X)) {
+      const claimKey = `aisle:${ak}`;
+      if (sim.aisleOccupant.has(ak) || sim.bypassClaims.has(claimKey)) continue;
+      const targeted = sim.vehicles.some((o) => o.uid !== v.uid && (o.heldAisle === ak || o.waypoints.some((w) => w.aisle === ak)));
+      if (!targeted) {
+        const pocketZ = L_mm > 2200 ? 12.2 : 10.1;
+        const pocketAabb = getVehicleWorldAABB(ax, pocketZ, 0, v.carryingSpec);
+        const hitsObs = sim.obstacleBoxes.some((b) => aabbOverlap(pocketAabb, b, 0.08));
+        if (!hitsObs) {
+          candidates.push({ x: ax, z: pocketZ, claimKey, aisle: pocketZ >= 10.2 ? ak : 'hwy', dist: Math.hypot(ax - v.x, pocketZ - v.z) });
+        }
+      }
+    }
+
+    if (candidates.length === 0) return false;
+    candidates.sort((a, b) => a.dist - b.dist);
+    const chosen = candidates[0];
+
+    v.bypassing = true;
+    v.bypassTimer = 2.4;
+    v.bypassClaimKey = chosen.claimKey;
+    sim.bypassClaims.add(chosen.claimKey);
+    if (chosen.aisle !== 'park' && chosen.aisle !== 'hwy') {
+      sim.aisleOccupant.set(chosen.aisle, v.id);
+      v.heldAisle = chosen.aisle;
+    }
+    v.blockWait = 0;
+    v.waypoints = buildCorridorPath(v.x, v.z, chosen.x, chosen.z, chosen.aisle === 'park' ? 'park' : chosen.aisle);
+    v.wpIdx = 0;
+    sim.bypassCount += 1;
+    return true;
+  }
+
+  function resumeFromBypass(v) {
+    if (v.bypassClaimKey) {
+      sim.bypassClaims.delete(v.bypassClaimKey);
+      v.bypassClaimKey = null;
+    }
+    if (v.heldAisle && !v.heldAisle.startsWith('hwy_bay:') && v.z <= HWY_Z_OUT + 0.5) {
+      if (sim.aisleOccupant.get(v.heldAisle) === v.id) sim.aisleOccupant.delete(v.heldAisle);
+      v.heldAisle = null;
+    }
+    v.bypassing = false;
+    v.bypassCooldown = 12.0;
+    v.blockWait = 0;
+    const t = v.task;
+    if (t) {
+      if (v.state === 'to_pickup') {
+        assignTaskToVehicle(v, t);
+      } else {
+        const p = t.slot.pose;
+        const lockKey = p.aisleKey === 'hwy' ? `hwy_bay:${p.key}` : p.aisleKey;
+        v.waypoints = t.kind === 'put'
+          ? buildCorridorPath(v.x, v.z, p.aisleX, p.aisleZ, p.aisleKey, lockKey)
+          : buildCorridorPath(v.x, v.z, SHUTTER_OUT_X, HWY_Z_OUT, 'hwy');
+        v.wpIdx = 0;
+      }
+    }
   }
 
   function beginDwellPhase(v, mode, atRack) {
@@ -1747,13 +2010,17 @@ export function createSimulationController({ container, getData, getTheme, onSel
     const t = v.task;
     if (atRack) {
       const p = t.slot.pose;
-      v.dwellTargetYaw = Math.atan2(p.faceX, p.faceZ);
+      const isLongNorthWall = (t.sku?.L_mm || 0) >= 5000 && p.aisleKey === 'hwy';
+      // Keep 5.8m-7.5m North-wall loads oriented parallel East-West on side-reach dwell so they never swing into the wall
+      v.dwellTargetYaw = isLongNorthWall ? -Math.PI / 2 : Math.atan2(p.faceX, p.faceZ);
       const elev = tierElevation(t.slot.loc);
       v.dwellTargetForkY = v.type === 'stacker' ? Math.max(0.08, Math.min(elev, 2.48)) : 0.06;
       v.dwellDuration = v.dwellTargetForkY > 1.0 ? 2.2 : 1.4;
+      v.dwellExitYaw = p.aisleKey === 'hwy' ? -Math.PI / 2 : Math.PI;
     } else {
-      // Shutter Door dock facing East (+x -> -pi/2? Wait: vehicle +Z forward -> +x is Math.atan2(1, 0) = Math.PI/2, IN dock faces -x)
-      v.dwellTargetYaw = t.kind === 'put' ? Math.PI / 2 : Math.PI / 2;
+      // At SHUTTER IN face West (-pi/2) to match Westbound departure without swinging long loads 180 deg across HWY_Z_OUT
+      v.dwellTargetYaw = t.kind === 'put' ? -Math.PI / 2 : Math.PI / 2;
+      v.dwellExitYaw = t.kind === 'put' ? -Math.PI / 2 : Math.PI / 2;
       v.dwellTargetForkY = 0.08;
       v.dwellDuration = 1.1;
     }
@@ -1765,11 +2032,22 @@ export function createSimulationController({ container, getData, getTheme, onSel
     const t = v.task;
     const atRack = (v.state === 'dwell_pickup' && t.kind === 'pick') || (v.state === 'dwell_drop' && t.kind === 'put');
 
-    // Smooth turn to face rack/dock
-    let yawDiff = v.dwellTargetYaw - v.yaw;
+    // Align facing bay BEFORE [0.35] reach, then rotate smoothly to exit orientation [0.82..1.00] ONLY when clear!
+    const desiredYaw = prog >= 0.82 ? (v.dwellExitYaw ?? v.dwellTargetYaw) : v.dwellTargetYaw;
+    let yawDiff = desiredYaw - v.yaw;
     while (yawDiff > Math.PI) yawDiff -= Math.PI * 2;
     while (yawDiff < -Math.PI) yawDiff += Math.PI * 2;
-    v.yaw += yawDiff * Math.min(1, dt * 8);
+    const candYaw = Math.abs(yawDiff) < 0.08 || (prog >= 0.30 && prog < 0.82)
+      ? desiredYaw
+      : v.yaw + yawDiff * Math.min(1, dt * 12);
+    const rotAabb = getVehicleWorldAABB(v.x, v.z, candYaw, v.carryingSpec);
+    const curAabbRot = getVehicleWorldAABB(v.x, v.z, v.yaw, v.carryingSpec);
+    const rotHitsVeh = sim.vehicles.some((o) => {
+      if (o.uid === v.uid) return false;
+      const oAabb = getVehicleWorldAABB(o.x, o.z, o.yaw, o.carryingSpec);
+      return aabbOverlap(rotAabb, oAabb, 0.04) && !aabbOverlap(curAabbRot, oAabb, 0.04);
+    });
+    if (!rotHitsVeh) v.yaw = candYaw;
     v.mesh.rotation.y = v.yaw;
 
     // 4-Stage Fork Lift & Reach Timeline:
@@ -1786,8 +2064,21 @@ export function createSimulationController({ container, getData, getTheme, onSel
       v.forkY = v.dwellTargetForkY;
       v.forkReach = (atRack ? 0.56 : 0.25) * k;
       if (prog >= 0.52 && !v.dwellSwapped) {
-        v.dwellSwapped = true;
         if (v.state === 'dwell_pickup') {
+          // Verify newly loaded OBB (at both current yaw and exit yaw) clears nearby vehicles before spawning
+          const nextSpec = getCargoCarrySpec(t.tag, t.sku, t.wt, v.type);
+          const nextAabbCur = getVehicleWorldAABB(v.x, v.z, v.yaw, nextSpec);
+          const nextAabbExit = getVehicleWorldAABB(v.x, v.z, v.dwellExitYaw ?? v.yaw, nextSpec);
+          const blockedOnSpawn = sim.vehicles.some((o) => {
+            if (o.uid === v.uid) return false;
+            const oAabb = getVehicleWorldAABB(o.x, o.z, o.yaw, o.carryingSpec);
+            return aabbOverlap(nextAabbCur, oAabb, 0.20) || aabbOverlap(nextAabbExit, oAabb, 0.20);
+          });
+          if (blockedOnSpawn) {
+            v.dwellElapsed = v.dwellDuration * 0.51;
+            return false;
+          }
+          v.dwellSwapped = true;
           if (t.kind === 'put') {
             attachCargoToVehicle(v, t.tag, t.sku, t.slot, t.useWide);
           } else {
@@ -1795,6 +2086,7 @@ export function createSimulationController({ container, getData, getTheme, onSel
             attachCargoToVehicle(v, t.tag, t.sku, t.slot, t.useWide);
           }
         } else {
+          v.dwellSwapped = true;
           clearVehicleCargo(v);
           if (t.kind === 'put') {
             setSlotCargo(t.slot, t.tag, t.wt, true, t.useWide);
@@ -1830,6 +2122,13 @@ export function createSimulationController({ container, getData, getTheme, onSel
 
     if (prog < 1) return false;
 
+    if (v.carryingSpec && Math.abs(yawDiff) > 0.15) {
+      v.dwellElapsed = v.dwellDuration * 0.99;
+      return false;
+    }
+
+    v.yaw = v.dwellExitYaw ?? v.yaw;
+    v.mesh.rotation.y = v.yaw;
     v.forkReach = 0;
     v.forkY = 0.08;
     if (v.type === 'stacker' && v.mesh.userData.carriage) v.mesh.userData.carriage.position.y = 0.08;
@@ -1854,18 +2153,29 @@ export function createSimulationController({ container, getData, getTheme, onSel
   }
 
   function stepVehicle(v, dt) {
+    if (v.bypassCooldown > 0) v.bypassCooldown = Math.max(0, v.bypassCooldown - dt);
+
     // 1. Idle task dispatch (prefers free aisles & free North-wall bays so traffic flows smoothly!)
     if (v.state === 'idle') {
       if (sim.taskQueue.length > 0) {
-        let bestIdx = sim.taskQueue.findIndex((t) => {
+        const shutterInLoaders = sim.vehicles.filter((o) => o.uid !== v.uid && o.task?.kind === 'put' && (o.state === 'to_pickup' || o.state === 'dwell_pickup')).length;
+        const taskAisleKey = (t) => (t.slot.pose.aisleKey === 'hwy' ? `hwy_bay:${t.slot.pose.key}` : t.slot.pose.aisleKey);
+        const aisleActiveCount = (ak) => sim.vehicles.filter((o) => {
+          if (o.uid === v.uid) return false;
+          if (o.heldAisle === ak) return true;
+          if (o.task && taskAisleKey(o.task) === ak) return true;
+          return false;
+        }).length;
+        const canServeTask = (t, maxPerAisle) => {
           if (t.requiresStacker && v.type !== 'stacker') return false;
-          const ak = t.slot.pose.aisleKey === 'hwy' ? `hwy_bay:${t.slot.pose.key}` : t.slot.pose.aisleKey;
-          if (sim.aisleOccupant.has(ak) && sim.aisleOccupant.get(ak) !== v.id) return false;
+          if (t.kind === 'put' && shutterInLoaders >= 3) return false;
+          const ak = taskAisleKey(t);
+          if (aisleActiveCount(ak) >= maxPerAisle) return false;
           return true;
-        });
-        if (bestIdx === -1) {
-          bestIdx = sim.taskQueue.findIndex((t) => !(t.requiresStacker && v.type !== 'stacker'));
-        }
+        };
+        // Strongly prefer uncrowded aisles (0 active), fallback to <=2 active (1 in aisle + 1 in 9.95 buffer) so queues never spill onto Highway
+        let bestIdx = sim.taskQueue.findIndex((t) => canServeTask(t, 1));
+        if (bestIdx === -1) bestIdx = sim.taskQueue.findIndex((t) => canServeTask(t, 2));
         if (bestIdx !== -1) {
           const [task] = sim.taskQueue.splice(bestIdx, 1);
           assignTaskToVehicle(v, task);
@@ -1875,7 +2185,7 @@ export function createSimulationController({ container, getData, getTheme, onSel
 
       // Return cleanly to assigned parking stall along corridor graph (NEVER diagonally through racks!)
       const distHome = Math.hypot(v.homeX - v.x, v.homeZ - v.z);
-      if (distHome > 0.08) {
+      if (distHome > 0.03) {
         if (!v.returningHome || v.waypoints.length === 0) {
           v.returningHome = true;
           v.waypoints = buildCorridorPath(v.x, v.z, v.homeX, v.homeZ, 'park');
@@ -1899,13 +2209,29 @@ export function createSimulationController({ container, getData, getTheme, onSel
       return;
     }
 
+    // 2.5 Highway Blockade Bypass Yield Timer when parked in temporary bypass pocket
+    if (v.bypassing && v.wpIdx >= v.waypoints.length) {
+      v.bypassTimer -= dt;
+      if (v.bypassTimer > 0) return;
+      resumeFromBypass(v);
+      return;
+    }
+
     // 3. Corridor Movement
     const wp = v.waypoints[v.wpIdx];
-    if (!wp) return;
+    if (!wp) {
+      if (v.task && !v.bypassing) {
+        const t = v.task;
+        const atRack = (v.state === 'to_pickup' && t.kind === 'pick') || (v.state === 'to_drop' && t.kind === 'put');
+        beginDwellPhase(v, v.state === 'to_pickup' ? 'dwell_pickup' : 'dwell_drop', atRack);
+      }
+      return;
+    }
 
-    // Single-occupant lock for both vertical Aisles 1..6 and North-wall Hwy stubs (`hwy_bay:*`)
-    const needVerticalLock = wp.aisle && wp.aisle !== 'hwy' && wp.aisle !== 'park' && wp.aisle !== 'hwy_wall' && v.z < 10.2 && wp.z >= 10.2 && v.heldAisle !== wp.aisle;
-    const needHwyBayLock = wp.aisle === 'hwy_wall' && wp.lockKey && v.z >= 5.2 && wp.z <= HWY_Z_IN && v.heldAisle !== wp.lockKey && Math.abs(wp.x - v.x) < 2.2;
+    // Single-occupant lock for vertical Aisles 1..6 (acquired while waiting at (AISLE_X-1.08, 8.85) BEFORE stepping onto AISLE_X) and North-wall stubs
+    const needVerticalLock = wp.aisle && wp.aisle !== 'hwy' && wp.aisle !== 'park' && wp.aisle !== 'hwy_wall' && Math.abs(v.x - (AISLE_X[wp.aisle] || v.x)) > 0.4 && Math.abs(wp.x - (AISLE_X[wp.aisle] || wp.x)) < 0.2 && v.heldAisle !== wp.aisle;
+    const hwyHoldDist = (v.carryingSpec?.L_mm >= 3500 || v.task?.sku?.L_mm >= 3500) ? 4.4 : 2.2;
+    const needHwyBayLock = wp.aisle === 'hwy_wall' && wp.lockKey && v.z >= HWY_Z_IN - 0.15 && wp.z <= HWY_Z_IN && v.heldAisle !== wp.lockKey && Math.abs(wp.x - v.x) < hwyHoldDist;
     const lockKeyNeeded = needVerticalLock ? wp.aisle : (needHwyBayLock ? wp.lockKey : null);
 
     if (lockKeyNeeded) {
@@ -1913,25 +2239,130 @@ export function createSimulationController({ container, getData, getTheme, onSel
       if (occ && occ !== v.id) {
         const wasWaiting = v.waitAccum > 0;
         v.waitAccum += dt;
+        v.blockWait = (v.blockWait || 0) + dt;
         if (!wasWaiting) sim.aisleWaits += 1;
         if (v.mesh.userData.beacon) v.mesh.userData.beacon.material.color.setHex(0xef4444);
+        // Only yield off Highway if holding a North-wall lock on HWY_Z_IN AND another vehicle is waiting behind us!
+        const blockingFollower = needHwyBayLock && sim.vehicles.some((o) => o.uid !== v.uid && Math.abs(o.z - v.z) < 0.7 && o.x > v.x && o.x - v.x < 8.0 && (o.blockWait || 0) > 1.0);
+        if (blockingFollower && v.blockWait > 4.0 && tryStartBypass(v)) return;
         return;
+      }
+      if (v.heldAisle && v.heldAisle !== lockKeyNeeded && sim.aisleOccupant.get(v.heldAisle) === v.id) {
+        sim.aisleOccupant.delete(v.heldAisle);
       }
       sim.aisleOccupant.set(lockKeyNeeded, v.id);
       v.heldAisle = lockKeyNeeded;
+      v.heldBayX = lockKeyNeeded.startsWith('hwy_bay:') ? v.x : null;
+      if (lockKeyNeeded.startsWith('hwy_bay:')) {
+        const bayMatch = sim.slots.find((s) => `hwy_bay:${s.pose.key}` === lockKeyNeeded);
+        if (bayMatch) v.heldBayX = bayMatch.pose.aisleX;
+      }
       v.waitAccum = 0;
+      v.blockWait = 0;
     }
 
-    // Release lock ONLY after vehicle has physically exited back onto Highway lane!
-    if (v.heldAisle && wp.aisle === 'hwy') {
-      const exitedVertical = !v.heldAisle.startsWith('hwy_bay:') && v.z <= 8.7;
-      const exitedHwyBay = v.heldAisle.startsWith('hwy_bay:') && v.z >= HWY_Z_IN - 0.05;
+    // Release lock ONLY after vehicle has physically exited onto Highway (or cleared South past 5.45 toward another aisle)
+    if (v.heldAisle && wp.aisle !== 'hwy_wall' && (wp.aisle === 'hwy' || v.heldAisle.startsWith('hwy_bay:'))) {
+      const exitedVertical = !v.heldAisle.startsWith('hwy_bay:') && (Math.abs(v.x - (AISLE_X[v.heldAisle] ?? v.x)) > 1.25 || v.z <= HWY_Z_IN + 0.25);
+      const bayX = v.heldBayX ?? v.x;
+      const bayHalf = v.carryingSpec ? Math.max(v.carryingSpec.halfX, v.carryingSpec.halfZ) : 0.86;
+      const exitedHwyBay = v.heldAisle.startsWith('hwy_bay:') && (
+        v.z >= HWY_Z_OUT - 0.35
+        || (v.z >= HWY_Z_IN - 0.25 && v.x <= bayX - Math.max(2.0, bayHalf + 0.85))
+        || (wp.aisle !== 'hwy' && v.z >= HWY_Z_IN + 0.45)
+      );
       if (exitedVertical || exitedHwyBay) {
         if (sim.aisleOccupant.get(v.heldAisle) === v.id) {
           sim.aisleOccupant.delete(v.heldAisle);
         }
         v.heldAisle = null;
+        v.heldBayX = null;
       }
+    }
+
+    // East-Dock (50.5..53.5, 5.45) Mutex: prevent SHUTTER_IN loaders (51.2) and SHUTTER_OUT returners (53.0)
+    // from sandwiching back-to-back at (51.2, 5.45) & (52.9, 5.45) while holding long loads.
+    if (v.z >= 7.35 && wp.z <= HWY_Z_IN + 0.3 && wp.x >= 50.5) {
+      const isPutLoader = v.state === 'to_pickup' && v.task?.kind === 'put';
+      const eastDockBusy = sim.vehicles.some((o) => {
+        if (o.uid === v.uid || o.z < 4.9 || o.z > 7.25) return false;
+        return isPutLoader ? o.x >= 51.3 : o.x >= 49.6;
+      });
+      if (eastDockBusy) {
+        v.blockWait = (v.blockWait || 0) + dt;
+        return;
+      }
+    }
+
+    // North-Wall Pull-Through Yield: wait safely at HWY_WALL_Z (4.10, clear above 5.45) until target Highway span
+    // and any adjacent vertical aisle exit conflict are open
+    if (v.z <= HWY_WALL_Z + 0.25 && wp.z >= HWY_Z_IN - 0.1) {
+      const spanHalf = v.carryingSpec ? Math.max(v.carryingSpec.halfX, v.carryingSpec.halfZ) : 0.86;
+      const wallMinX = v.x - spanHalf - 0.55;
+      const wallMaxX = v.x + spanHalf + 0.55;
+      const targetMaxZ = wp.z >= HWY_Z_OUT - 0.3 ? 8.65 : 6.15;
+      const exitLaneBusy = sim.vehicles.some((o) => {
+        if (o.uid === v.uid || (o.state === 'idle' && !o.returningHome)) return false;
+        // Never yield to a vehicle queuing to enter our own bay lock — we must exit so it can enter!
+        if (v.heldAisle && o.waypoints.some((w) => w.lockKey === v.heldAisle)) return false;
+        const oAabb = getVehicleWorldAABB(o.x, o.z, o.yaw, o.carryingSpec);
+        if (oAabb.maxX > wallMinX && oAabb.minX < wallMaxX && oAabb.maxZ > 4.9 && oAabb.minZ < targetMaxZ) return true;
+        // Also yield if an adjacent vertical aisle occupant is actively exiting past the mouth (z <= 9.9) within our swing span
+        const oWp = o.waypoints && o.waypoints[o.wpIdx];
+        if (wp.z >= HWY_Z_OUT - 0.3 && o.heldAisle && !o.heldAisle.startsWith('hwy_bay:') && oWp && oWp.z < o.z && o.z <= 9.9) {
+          const swingPad = o.carryingSpec ? Math.max(o.carryingSpec.halfX, o.carryingSpec.halfZ) : 0.86;
+          if (o.x + swingPad > wallMinX && o.x - swingPad < wallMaxX) return true;
+        }
+        return false;
+      });
+      if (exitLaneBusy) {
+        v.blockWait = (v.blockWait || 0) + dt;
+        return;
+      }
+    }
+
+    // Vertical Aisle Exit Yield: right before stepping out past z=10.6 onto HWY_Z_OUT (7.95), ensure turning radius along
+    // [v.x - spanHalf - 0.65 .. v.x + spanHalf + 0.65] on Highway is clear of horizontal 7.95 traffic & descending North-wall exits
+    if (v.heldAisle && !v.heldAisle.startsWith('hwy_bay:') && v.z >= 10.45 && v.z <= 10.95 && wp.z < v.z && wp.z <= 8.8) {
+      const spanHalf = v.carryingSpec ? Math.max(v.carryingSpec.halfX, v.carryingSpec.halfZ) : 0.86;
+      const mouthMinX = v.x - spanHalf - 0.65;
+      const mouthMaxX = v.x + spanHalf + 0.65;
+      const mouthBusy = sim.vehicles.some((o) => {
+        if (o.uid === v.uid || (o.state === 'idle' && !o.returningHome)) return false;
+        const oWp = o.waypoints && o.waypoints[o.wpIdx];
+        const isHwyOutMover = o.z >= 7.1 && o.z <= 8.45 && (!oWp || Math.abs(oWp.x - o.x) > 0.35);
+        const isWallDescending = o.heldAisle?.startsWith('hwy_bay:') && o.z > HWY_WALL_Z + 0.35 && oWp && oWp.z >= HWY_Z_OUT - 0.3;
+        if (!isHwyOutMover && !isWallDescending) return false;
+        const oAabb = getVehicleWorldAABB(o.x, o.z, o.yaw, o.carryingSpec);
+        return oAabb.maxX > mouthMinX && oAabb.minX < mouthMaxX;
+      });
+      if (mouthBusy) {
+        v.blockWait = (v.blockWait || 0) + dt;
+        return;
+      }
+    }
+
+    // Highway South-Crossing Yield (non-heldAisle only): before stepping south from HWY_Z_IN (5.45) across Eastbound HWY_Z_OUT (7.95),
+    // wait cleanly at z<=5.75 if Eastbound traffic on 7.95 is within our crossing width (never stop in mid-crossover at z=6.10!)
+    if (!v.heldAisle && v.z <= HWY_Z_IN + 0.30 && wp.z >= HWY_Z_OUT - 0.15 && Math.abs(wp.x - v.x) < 0.35 && wp.aisle !== 'hwy_wall') {
+      const spanHalf = v.carryingSpec ? Math.max(v.carryingSpec.halfX, v.carryingSpec.halfZ) : 0.86;
+      const crossMinX = v.x - spanHalf - 1.1;
+      const crossMaxX = v.x + spanHalf + 0.5;
+      const hwyOutBusy = sim.vehicles.some((o) => {
+        if (o.uid === v.uid || (o.state === 'idle' && !o.returningHome)) return false;
+        const oAabb = getVehicleWorldAABB(o.x, o.z, o.yaw, o.carryingSpec);
+        return oAabb.maxX > crossMinX && oAabb.minX < crossMaxX && oAabb.maxZ > 7.1 && oAabb.minZ < 8.65;
+      });
+      if (hwyOutBusy) {
+        v.blockWait = (v.blockWait || 0) + dt;
+        return;
+      }
+    }
+
+    // Never allow a 2nd entrant to queue across HWY_Z_OUT blocking an occupied aisle's wait buffer (AISLE_X - 1.30, 9.95)
+    if (!v.bypassing && wp.aisle && wp.aisle !== 'hwy' && wp.aisle !== 'park' && wp.aisle !== 'hwy_wall' && v.z <= HWY_Z_OUT + 0.45 && Math.abs(wp.z - 9.95) < 0.2) {
+      const bufferBusy = sim.vehicles.some((o) => o.uid !== v.uid && Math.abs(o.x - wp.x) < 0.9 && o.z >= 8.2 && o.z <= 10.6);
+      if (bufferBusy && tryStartBypass(v, 3)) return;
     }
 
     if (v.mesh.userData.beacon) {
@@ -1943,31 +2374,50 @@ export function createSimulationController({ container, getData, getTheme, onSel
     const dist = Math.hypot(dx, dz);
     if (dist < 0.001) {
       v.wpIdx += 1;
+      if (v.wpIdx >= v.waypoints.length && v.task && !v.bypassing) {
+        const t = v.task;
+        const atRack = (v.state === 'to_pickup' && t.kind === 'pick') || (v.state === 'to_drop' && t.kind === 'put');
+        beginDwellPhase(v, v.state === 'to_pickup' ? 'dwell_pickup' : 'dwell_drop', atRack);
+      } else if (v.wpIdx >= v.waypoints.length && v.returningHome) {
+        v.returningHome = false;
+        v.waypoints = [];
+      }
       return;
     }
 
-    const step = Math.min(dist, v.speed * dt);
+    const effSpeed = getEffectiveSpeed(v);
+    const step = Math.min(dist, effSpeed * dt);
     const nx = v.x + (dx / dist) * step;
     const nz = v.z + (dz / dist) * step;
 
-    const guard = computeSafeAdvance(v, nx, nz, dx / dist, dz / dist);
+    const guard = computeSafeAdvance(v, nx, nz, dx / dist, dz / dist, wp);
     if (guard.blocked) {
       v.blockWait = (v.blockWait || 0) + dt;
       if (guard.reason === 'vehicle') sim.collisionsAvoided += 1;
       if (v.mesh.userData.beacon) v.mesh.userData.beacon.material.color.setHex(0xef4444);
+      // If an active bypass path itself becomes blocked, abort bypass cleanly and resume primary route
+      if (v.bypassing && v.blockWait > 4.0) {
+        resumeFromBypass(v);
+        return;
+      }
+      // Trigger Highway pull-out bypass ONLY for genuine mutual opposing/crossing blockades (or prolonged >12s gridlock), not normal same-direction queues
+      const by = guard.by;
+      const opposingOrCross = by && (by.blockWait || 0) > 2.5 && by.state !== 'dwell_pickup' && by.state !== 'dwell_drop' && Math.cos((v.yaw || 0) - (by.yaw || 0)) < 0.35;
+      const longMutualGridlock = by && (by.blockWait || 0) > 8.0 && by.state !== 'dwell_pickup' && by.state !== 'dwell_drop';
+      if (!v.bypassing && ((opposingOrCross && v.blockWait > 4.5) || (longMutualGridlock && v.blockWait > 12.0)) && tryStartBypass(v)) return;
       return;
     }
 
     v.blockWait = 0;
     v.x = nx;
     v.z = nz;
-    v.yaw = Math.atan2(dx, dz);
+    v.yaw = getMoveYaw(v, dx, dz, wp);
     v.mesh.position.set(v.x, 0, v.z);
     v.mesh.rotation.y = v.yaw;
 
-    if (dist <= v.speed * dt + 0.01) {
+    if (dist <= effSpeed * dt + 0.01) {
       v.wpIdx += 1;
-      if (v.wpIdx >= v.waypoints.length && v.task) {
+      if (v.wpIdx >= v.waypoints.length && v.task && !v.bypassing) {
         const t = v.task;
         const atRack = (v.state === 'to_pickup' && t.kind === 'pick') || (v.state === 'to_drop' && t.kind === 'put');
         beginDwellPhase(v, v.state === 'to_pickup' ? 'dwell_pickup' : 'dwell_drop', atRack);
@@ -2011,6 +2461,8 @@ export function createSimulationController({ container, getData, getTheme, onSel
     sim.outCount = 0;
     sim.aisleWaits = 0;
     sim.collisionsAvoided = 0;
+    sim.bypassClaims.clear();
+    sim.bypassCount = 0;
 
     buildDay0SlotModel();
     planScenarioQueues();

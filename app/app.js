@@ -504,7 +504,7 @@ async function render3D() {
 async function ensureSimController() {
   if (simCtrl) return simCtrl;
   if (!simModulePromise) {
-    simModulePromise = import('/sim3d.js?v=7').then((mod) => {
+    simModulePromise = import('/sim3d.js?v=8').then((mod) => {
       simCtrl = mod.createSimulationController({
         container: document.getElementById('sim-container'),
         getData: () => state.data,
