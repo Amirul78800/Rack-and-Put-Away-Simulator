@@ -251,8 +251,9 @@ function renderLevelCard(loc, skuMap) {
 
   const tierShort = `L${loc.tier}`;
   return `<div class="level-card ${selected ? 'selected' : ''} ${matched ? '' : 'dimmed'}" data-loc-id="${escapeHtml(loc.location_id)}">
-    <div class="level-top"><span>${tierShort} · ${escapeHtml(loc.slot_mode)}</span><span>${fmtNum(loc.active_mass_kg)}/${fmtNum(loc.level_swl_kg)}kg</span></div>
+    <div class="level-top"><span class="level-tier">${tierShort}</span><span class="level-mode">${escapeHtml(loc.slot_mode)}</span></div>
     <div class="slots-row">${slotsHtml}</div>
+    <div class="level-load">${fmtNum(loc.active_mass_kg)} / ${fmtNum(loc.level_swl_kg)} kg</div>
     <div class="swl-bar"><div class="swl-bar-fill" style="width:${Math.min(100, loc.swl_pct)}%;background:${swlBarColor(loc.swl_pct)}"></div></div>
   </div>`;
 }
