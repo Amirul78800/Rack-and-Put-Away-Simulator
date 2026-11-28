@@ -1,5 +1,6 @@
 // Three.js Procedural Textures, Warehouse Racks, Equipment & Dolly Meshes
 import { WH_WIDTH, WH_DEPTH, HWY_Z_IN, HWY_Z_OUT, AISLE_X, PARKING_STALLS, COLUMNS_POS, tierNum, getBayPose, tierElevation, buildObstacleBoxes } from './sim-geometry.js';
+import { buildDualSkateCradle } from './sim-skate.js';
 
 let THREE = null;
 export function setMeshThree(t) { THREE = t; }
@@ -407,37 +408,7 @@ export function buildEquipmentMesh(type) {
 }
 
 export function buildDollyCradleMesh(L_m, W_m) {
-    const g = new THREE.Group();
-    const steelMat = new THREE.MeshStandardMaterial({ color: 0x334155, metalness: 0.7, roughness: 0.35 });
-    const warnMat = new THREE.MeshStandardMaterial({ color: 0xf59e0b, roughness: 0.4 });
-    const wheelMat = new THREE.MeshStandardMaterial({ color: 0x0f172a, roughness: 0.75 });
-    const railLen = Math.min(Math.max(L_m * 0.76, 3.2), 5.4);
-    const railSpanX = Math.min(Math.max(W_m * 0.36, 0.28), 0.36);
-
-    for (const rx of [-railSpanX, railSpanX]) {
-      const rail = new THREE.Mesh(new THREE.BoxGeometry(0.06, 0.06, railLen), steelMat);
-      rail.position.set(rx, -0.02, 0);
-      g.add(rail);
-    }
-    const bSpanZ = railLen * 0.36;
-    const bolsterGeo = new THREE.BoxGeometry(railSpanX * 2 + 0.14, 0.06, 0.14);
-    const capGeo = new THREE.BoxGeometry(railSpanX * 2 + 0.18, 0.05, 0.06);
-    const wheelGeo = new THREE.CylinderGeometry(0.05, 0.05, 0.05, 10);
-    for (const bz of [-bSpanZ, bSpanZ]) {
-      const bolster = new THREE.Mesh(bolsterGeo, steelMat);
-      bolster.position.set(0, 0.0, bz);
-      g.add(bolster);
-      const cap = new THREE.Mesh(capGeo, warnMat);
-      cap.position.set(0, 0.01, bz + Math.sign(bz) * 0.10);
-      g.add(cap);
-      for (const wx of [-railSpanX, railSpanX]) {
-        const w = new THREE.Mesh(wheelGeo, wheelMat);
-        w.rotation.z = Math.PI / 2;
-        w.position.set(wx, -0.045, bz);
-        g.add(w);
-      }
-    }
-    return g;
+    return buildDualSkateCradle(THREE, L_m, W_m);
   }
 
 export function buildFloorMarkingsAndShutter(scene, sim) {

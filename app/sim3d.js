@@ -2,8 +2,9 @@
 // Dynamically imported when the "3D Simulation" tab is activated.
 import * as geom from './sim-geometry.js';
 export * from './sim-geometry.js';
-import { setMeshThree, buildCargoMesh, buildEquipmentMesh, buildDollyCradleMesh, buildFloorMarkingsAndShutter, buildStaticRacksFromData } from './sim-meshes.js';
+import { setMeshThree, makeLabelTexture, buildCargoMesh, buildEquipmentMesh, buildDollyCradleMesh, buildFloorMarkingsAndShutter, buildStaticRacksFromData } from './sim-meshes.js';
 import { createTrafficEngine } from './sim-traffic.js';
+import { createSkateManager } from './sim-skate.js';
 
 const { WH_WIDTH, WH_DEPTH, HWY_Z_IN, HWY_Z_OUT, PARK_Z, AISLE_X, PARKING_STALLS, COLUMNS_POS, normalizeSkusMap, tierNum, getBayPose, tierElevation, buildObstacleBoxes, usesLongDolly, isWideCrosswise, hwyWideZ, getCargoCarrySpec, getVehicleWorldAABB, buildCorridorPath, slotWorldPos } = geom;
 
@@ -252,6 +253,8 @@ export function createSimulationController({ container, getData, getTheme, onSel
 
     window.addEventListener('resize', resize);
 
+    sim.skateManager = createSkateManager({ THREE, sim, makeLabelTexture });
+    sim.skateManager.initBox(scene);
     buildStaticRacksFromData(sim, getData);
     resetScenario();
   }
@@ -583,6 +586,7 @@ export function createSimulationController({ container, getData, getTheme, onSel
     }
     sim.vehicles = [];
     sim.aisleOccupant.clear();
+    sim.skateManager?.resetSkates();
     sim.nextVehicleUid = 1;
 
     const specs = [];
@@ -612,6 +616,7 @@ export function createSimulationController({ container, getData, getTheme, onSel
       sim.aisleOccupant.delete(v.heldAisle);
     }
     if (v.bypassClaimKey) sim.bypassClaims.delete(v.bypassClaimKey);
+    sim.skateManager?.returnSkates(v.uid);
     sim.fleetGroup.remove(v.mesh);
     sim.vehicles.splice(idx, 1);
   }
@@ -631,6 +636,9 @@ export function createSimulationController({ container, getData, getTheme, onSel
       const dolly = buildDollyCradleMesh((spec.L_mm / 1000) * 0.84, (spec.W_mm / 1000) * 0.84);
       dolly.position.z = localZ;
       mount.add(dolly);
+      sim.skateManager?.checkoutSkates(v.uid);
+    } else {
+      sim.skateManager?.returnSkates(v.uid);
     }
     mount.add(mesh);
     v.carryingMesh = mesh;
@@ -642,6 +650,7 @@ export function createSimulationController({ container, getData, getTheme, onSel
     while (mount.children.length > 0) mount.remove(mount.children[0]);
     v.carryingMesh = null;
     v.carryingSpec = null;
+    sim.skateManager?.returnSkates(v.uid);
   }
 
   const { assignTaskToVehicle, getEffectiveSpeed, computeSafeAdvance, tryStartBypass, resumeFromBypass, beginDwellPhase, updateDwellAnimation, stepVehicle } = createTrafficEngine({ sim, setSlotCargo, attachCargoToVehicle, clearVehicleCargo, updatePhaseBanner });

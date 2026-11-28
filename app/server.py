@@ -300,7 +300,7 @@ class RackHandler(BaseHTTPRequestHandler):
         if p == "/app.js":
             self.send_file("app.js", "application/javascript; charset=utf-8", head_only=head_only)
             return
-        if p in ("/sim3d.js", "/sim-geometry.js", "/sim-meshes.js", "/sim-traffic.js"):
+        if p in ("/sim3d.js", "/sim-geometry.js", "/sim-meshes.js", "/sim-traffic.js", "/sim-skate.js"):
             self.send_file(p.lstrip("/"), "application/javascript; charset=utf-8", head_only=head_only)
             return
         if p == "/robots.txt":
