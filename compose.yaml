@@ -1,0 +1,21 @@
+services:
+  rack-viz:
+    image: python:3.12-alpine
+    container_name: rack-viz
+    working_dir: /app
+    command: ["python", "/app/server.py"]
+    ports:
+      - "${HTTP_PORT:-8111}:8111"
+    environment:
+      PORT: "8111"
+      OPENMES_URL: ${OPENMES_URL}
+      OPENMES_ERP_KEY: ${OPENMES_ERP_KEY}
+      RACKVIZ_ADMIN_PIN: ${RACKVIZ_ADMIN_PIN}
+    volumes:
+      - ${APP_HOST_PATH:-./app}:/app:ro
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://127.0.0.1:8111/api/health').read()\""]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+    restart: unless-stopped
