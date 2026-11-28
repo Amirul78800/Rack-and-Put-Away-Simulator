@@ -4,6 +4,7 @@ import { HWY_Z_IN, HWY_Z_MID, HWY_Z_OUT, PARK_Z, HWY_WALL_Z, SHUTTER_IN_X, SHUTT
 export function createTrafficEngine({ sim, setSlotCargo, attachCargoToVehicle, clearVehicleCargo, updatePhaseBanner }) {
   function assignTaskToVehicle(v, task) {
     v.task = task;
+    v.activeTaskStartSec = +sim.simTimeSec.toFixed(2);
     v.returningHome = false;
     v.dwellSwapped = false;
     v.dwellDollySwapped = false;
@@ -676,6 +677,18 @@ export function createTrafficEngine({ sim, setSlotCargo, attachCargoToVehicle, c
       }
       v.wpIdx = 0;
     } else {
+      v.taskHistory = v.taskHistory || [];
+      v.taskHistory.push({
+        kind: t.kind,
+        tag: t.tag,
+        locId: t.slot.locId,
+        bay: t.slot.pose.key,
+        L_mm: Number(t.sku?.L_mm || 0),
+        wt: Number(t.wt || 0),
+        startSec: v.activeTaskStartSec ?? +sim.simTimeSec.toFixed(2),
+        endSec: +sim.simTimeSec.toFixed(2),
+      });
+      v.activeTaskStartSec = null;
       v.task = null;
       v.state = 'idle';
       v.returningHome = false;

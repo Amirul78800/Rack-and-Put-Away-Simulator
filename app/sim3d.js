@@ -575,6 +575,8 @@ export function createSimulationController({ container, getData, getTheme, onSel
       bypassTimer: 0,
       bypassCooldown: 0,
       bypassClaimKey: null,
+      taskHistory: [],
+      activeTaskStartSec: null,
     };
     sim.vehicles.push(v);
     return v;
@@ -611,6 +613,7 @@ export function createSimulationController({ container, getData, getTheme, onSel
         setSlotCargo(v.task.slot, v.task.tag, v.task.wt, true, v.task.useWide);
       }
       sim.taskQueue.unshift(v.task);
+      v.activeTaskStartSec = null;
     }
     if (v.heldAisle && sim.aisleOccupant.get(v.heldAisle) === v.id) {
       sim.aisleOccupant.delete(v.heldAisle);
