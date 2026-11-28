@@ -2072,14 +2072,21 @@ export function createSimulationController({ container, getData, getTheme, onSel
       }
     }
     if (!v.carryingSpec && v.z <= 6.2 && v.x >= 12.0 && v.x <= 49.5) {
-      for (const nOff of [0, -1.2, 1.2, -1.8, 1.8]) {
+      for (const nOff of [0, -1.2, 1.2, -1.8, 1.8, -3.0, 3.0, -4.5, 4.5]) {
         const sx = +(Math.max(12.0, Math.min(49.5, v.x + nOff))).toFixed(2);
         const claimKey = `nwall:north_${Math.round(sx)}`;
         if (sim.bypassClaims.has(claimKey)) continue;
-        const nAabb = getVehicleWorldAABB(sx, 3.65, Math.PI, null);
-        const nObs = sim.obstacleBoxes.some((b) => aabbOverlap(nAabb, b, 0.08));
-        const nBusy = sim.vehicles.some((o) => o.uid !== v.uid && aabbOverlap(nAabb, getVehicleWorldAABB(o.x, o.z, o.yaw, o.carryingSpec), 0.12));
-        if (!nObs && !nBusy) {
+        let northClear = true;
+        for (const nz of [3.65]) {
+          if (nz >= v.z - 0.1) continue;
+          const nAabb = getVehicleWorldAABB(sx, nz, Math.PI, null);
+          if (sim.obstacleBoxes.some((b) => aabbOverlap(nAabb, b, 0.08)) ||
+              sim.vehicles.some((o) => o.uid !== v.uid && aabbOverlap(nAabb, getVehicleWorldAABB(o.x, o.z, o.yaw, o.carryingSpec), 0.10))) {
+            northClear = false;
+            break;
+          }
+        }
+        if (northClear) {
           candidates.push({ x: sx, z: 3.65, claimKey, aisle: 'hwy_wall', bayKey: null, dist: Math.abs(3.65 - v.z) + Math.abs(nOff) + 4.0 });
           break;
         }
@@ -2138,7 +2145,7 @@ export function createSimulationController({ container, getData, getTheme, onSel
     let safeDropX = null;
     let horizSlideBypass = false;
 
-    for (const cand of candidates.slice(0, 4)) {
+    for (const cand of candidates.slice(0, 6)) {
       const segClearSouth = (dropX) => {
         if (cand.aisle === 'hwy_wall') return false;
         if (dropX < 3.0 || dropX > 50.8) return false;
@@ -2177,7 +2184,8 @@ export function createSimulationController({ container, getData, getTheme, onSel
         if (Math.abs(cand.x - v.x) >= 0.35 && crossesWideBlocker(v.x, cand.x)) continue;
         const minHX = Math.min(v.x, cand.x);
         const maxHX = Math.max(v.x, cand.x);
-        const yawSlide = cand.x >= v.x ? Math.PI / 2 : -Math.PI / 2;
+        const moveYawH = cand.x >= v.x ? Math.PI / 2 : -Math.PI / 2;
+        const yawSlide = (!v.carryingSpec && Math.cos(moveYawH - v.yaw) < -0.5) ? v.yaw : moveYawH;
         let slideOk = true;
         if (cand.aisle === 'hwy_wall' && maxHX - minHX < 0.35) {
           const upAabb = getVehicleWorldAABB(v.x, 3.75, Math.PI, v.carryingSpec);
